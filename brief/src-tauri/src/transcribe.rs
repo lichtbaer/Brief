@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -46,11 +46,38 @@ fn default_runner_script() -> String {
         .to_string()
 }
 
+/// Prefer the venv created by `whisperx_runner/setup.sh` (`.venv/` next to the runner script).
+fn resolve_venv_python_adjacent_to_runner(runner_script: &str) -> Option<String> {
+    let runner = Path::new(runner_script);
+    let whisperx_dir: PathBuf = runner.parent()?.to_path_buf();
+
+    let unix_venv = whisperx_dir.join(".venv/bin/python");
+    if unix_venv.exists() {
+        return Some(unix_venv.to_string_lossy().to_string());
+    }
+
+    #[cfg(windows)]
+    {
+        let win_venv = whisperx_dir.join(".venv/Scripts/python.exe");
+        if win_venv.exists() {
+            return Some(win_venv.to_string_lossy().to_string());
+        }
+    }
+
+    None
+}
+
+fn default_python_bin_for_runner(runner_script: &str) -> String {
+    resolve_venv_python_adjacent_to_runner(runner_script).unwrap_or_else(|| "python3".to_string())
+}
+
 impl Transcriber {
     pub fn new(python_bin: Option<String>, runner_script: Option<String>) -> Self {
+        let runner_script = runner_script.unwrap_or_else(default_runner_script);
+        let python_bin = python_bin.unwrap_or_else(|| default_python_bin_for_runner(&runner_script));
         Transcriber {
-            python_bin: python_bin.unwrap_or_else(|| "python3".to_string()),
-            runner_script: runner_script.unwrap_or_else(default_runner_script),
+            python_bin,
+            runner_script,
             model_size: "base".to_string(),
             language: "de".to_string(),
         }
