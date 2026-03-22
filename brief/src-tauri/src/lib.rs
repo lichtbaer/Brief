@@ -271,6 +271,25 @@ async fn get_all_settings(state: tauri::State<'_, AppState>) -> Result<String, S
     storage.get_all_settings().await
 }
 
+/// Returns true if WhisperX venv Python can import whisperx.
+#[tauri::command]
+async fn check_whisperx() -> Result<bool, String> {
+    tokio::task::spawn_blocking(|| transcribe::Transcriber::new(None, None).check_available())
+        .await
+        .map_err(|e| format!("Task-Fehler: {}", e))
+}
+
+/// Returns whether Ollama responds on localhost and the RAM-based recommended model id.
+#[tauri::command]
+async fn check_ollama() -> Result<serde_json::Value, String> {
+    let summarizer = summarize::Summarizer::new(None, None);
+    let running = summarizer.check_available().await;
+    Ok(serde_json::json!({
+        "running": running,
+        "recommended_model": memory::recommended_llm_model(memory::get_available_memory_gb()),
+    }))
+}
+
 /// Update a single setting (persists immediately).
 #[tauri::command]
 async fn update_setting(
@@ -344,7 +363,9 @@ pub fn run() {
             set_llm_model,
             dismiss_low_ram_onboarding,
             get_all_settings,
-            update_setting
+            update_setting,
+            check_whisperx,
+            check_ollama
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
