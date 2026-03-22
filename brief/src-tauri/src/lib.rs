@@ -1,5 +1,6 @@
 mod audio;
 mod crypto_key;
+mod export;
 mod memory;
 mod storage;
 mod summarize;
@@ -8,6 +9,7 @@ mod transcribe;
 mod types;
 
 use audio::AudioRecorder;
+use base64::Engine as _;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use storage::Storage;
@@ -165,6 +167,34 @@ async fn get_meeting(id: String, state: tauri::State<'_, AppState>) -> Result<St
         .ok_or_else(|| format!("Meeting {} nicht gefunden", id))
 }
 
+/// Export meeting as Markdown (frontend saves via system dialog).
+#[tauri::command]
+async fn export_markdown(id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let storage = state.storage.lock().await;
+    let meeting_json = storage
+        .get_meeting(&id)
+        .await?
+        .ok_or_else(|| format!("Meeting {} nicht gefunden", id))?;
+    let meeting: serde_json::Value =
+        serde_json::from_str(&meeting_json).map_err(|e| e.to_string())?;
+    Ok(export::generate_markdown(&meeting))
+}
+
+/// Export meeting as PDF bytes (base64); frontend decodes and saves via dialog.
+#[tauri::command]
+async fn export_pdf(id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let storage = state.storage.lock().await;
+    let meeting_json = storage
+        .get_meeting(&id)
+        .await?
+        .ok_or_else(|| format!("Meeting {} nicht gefunden", id))?;
+    let meeting: serde_json::Value =
+        serde_json::from_str(&meeting_json).map_err(|e| e.to_string())?;
+    let markdown = export::generate_markdown(&meeting);
+    let bytes = export::generate_pdf(&markdown)?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+}
+
 /// Returns all meetings (newest first) as JSON, without full transcripts.
 #[tauri::command]
 async fn list_meetings(state: tauri::State<'_, AppState>) -> Result<String, String> {
@@ -265,6 +295,8 @@ async fn update_setting(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let resolver = app.path();
             let app_data = resolver
@@ -304,6 +336,8 @@ pub fn run() {
             stop_recording,
             process_meeting,
             get_meeting,
+            export_markdown,
+            export_pdf,
             list_meetings,
             search_meetings,
             get_app_settings_snapshot,

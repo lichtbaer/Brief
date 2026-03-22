@@ -65,7 +65,9 @@
     "action_owner": "👤 {{owner}}",
     "action_due": "📅 {{date}}",
     "speaker_label": "{{speaker}}:",
-    "audio_not_saved": "Audio not saved (enable opt-in in Settings)"
+    "audio_not_saved": "Audio not saved (enable opt-in in Settings)",
+    "export_markdown": "Export as Markdown",
+    "export_pdf": "Export as PDF"
   },
   "settings": {
     "title": "Settings",
