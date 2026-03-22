@@ -118,7 +118,6 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
     <div
       style={{
         padding: "2rem",
-        fontFamily: "monospace",
       }}
     >
       <h1>{t("recording.smoke_test_heading")}</h1>
