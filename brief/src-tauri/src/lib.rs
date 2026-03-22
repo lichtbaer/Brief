@@ -1,6 +1,8 @@
 mod audio;
 mod crypto_key;
 mod storage;
+mod summarize;
+mod templates;
 mod transcribe;
 mod types;
 
@@ -56,6 +58,7 @@ async fn stop_recording(
 async fn process_meeting(
     session_id: String,
     audio_path: String,
+    meeting_type: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
     let transcriber = transcribe::Transcriber::new(None, None);
@@ -76,23 +79,19 @@ async fn process_meeting(
     let transcript = result
         .segments
         .iter()
-        .map(|s| format!("[{}] {}", s.speaker, s.text))
+        .map(|s| format!("[{}]: {}", s.speaker, s.text))
         .collect::<Vec<_>>()
         .join("\n");
 
-    let now = chrono::Utc::now().to_rfc3339();
-
-    // Placeholder MeetingOutput — summarization in Phase 2 (BRIEF-005)
-    let output = crate::types::MeetingOutput {
-        summary_short: "Zusammenfassung folgt in Phase 2.".to_string(),
-        topics: vec![],
-        decisions: vec![],
-        action_items: vec![],
-        follow_up_draft: serde_json::json!({}),
-        participants_mentioned: vec![],
-        template_used: "none".to_string(),
-        model_used: "whisper".to_string(),
-        generated_at: now.clone(),
+    let summarizer = summarize::Summarizer::new(None, None);
+    let output = if summarizer.check_available().await {
+        let system_prompt = templates::get_system_prompt(&meeting_type);
+        summarizer
+            .summarize(&transcript, &system_prompt, &meeting_type)
+            .await
+            .unwrap_or_else(|_| crate::types::MeetingOutput::placeholder(&meeting_type))
+    } else {
+        crate::types::MeetingOutput::placeholder(&meeting_type)
     };
 
     let duration_seconds = if result.segments.is_empty() {
@@ -113,17 +112,22 @@ async fn process_meeting(
         ((end - start).max(0.0).ceil() as u32).max(1)
     };
 
-    let title = format!(
-        "Meeting {}",
-        session_id.chars().take(8).collect::<String>()
-    );
+    let now = chrono::Utc::now().to_rfc3339();
+
+    let mut title: String = output.summary_short.chars().take(60).collect();
+    if title.trim().is_empty() {
+        title = format!(
+            "Meeting {}",
+            session_id.chars().take(8).collect::<String>()
+        );
+    }
 
     let meeting = crate::types::Meeting {
         id: session_id.clone(),
         created_at: now.clone(),
-        ended_at: now.clone(),
+        ended_at: now,
         duration_seconds,
-        meeting_type: "consulting".to_string(),
+        meeting_type: meeting_type.clone(),
         title,
         transcript,
         output,

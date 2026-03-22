@@ -25,6 +25,7 @@ export function RecordingView() {
       const result = await invoke<string>("process_meeting", {
         session_id: sid,
         audio_path: audioPath,
+        meeting_type: "consulting",
       });
       const parsed = JSON.parse(result) as Meeting;
       setMeeting(parsed);
