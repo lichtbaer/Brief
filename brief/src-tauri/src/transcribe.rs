@@ -1,6 +1,14 @@
 use serde::{Deserialize, Serialize};
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
+
+/// Stable token returned to the frontend when transcription exceeds the configured timeout.
+pub const TRANSCRIPTION_TIMEOUT_ERROR: &str = "BRIEF_ERR_TRANSCRIPTION_TIMEOUT";
+
+pub const DEFAULT_WHISPERX_TIMEOUT_SECS: u64 = 900;
 
 #[derive(Deserialize, Serialize, Clone)]
 pub struct DiarizedSegment {
@@ -27,6 +35,7 @@ pub struct Transcriber {
     pub runner_script: String,
     pub model_size: String,
     pub language: String,
+    pub timeout_secs: u64,
 }
 
 fn default_runner_script() -> String {
@@ -81,7 +90,13 @@ impl Transcriber {
             runner_script,
             model_size: "base".to_string(),
             language: "de".to_string(),
+            timeout_secs: DEFAULT_WHISPERX_TIMEOUT_SECS,
         }
+    }
+
+    pub fn with_timeout_secs(mut self, secs: u64) -> Self {
+        self.timeout_secs = secs.max(1);
+        self
     }
 
     pub fn transcribe(&self, audio_path: &Path) -> Result<WhisperXOutput, String> {
@@ -89,42 +104,96 @@ impl Transcriber {
             "Audio-Pfad ist nicht als UTF-8 darstellbar".to_string()
         })?;
 
-        let output = Command::new(&self.python_bin)
+        let mut child = Command::new(&self.python_bin)
             .arg(&self.runner_script)
             .arg(audio_str)
             .arg(&self.language)
             .arg(&self.model_size)
-            .output()
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .map_err(|e| format!("WhisperX konnte nicht gestartet werden: {}", e))?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let mut stdout_pipe = child
+            .stdout
+            .take()
+            .ok_or_else(|| "WhisperX stdout pipe missing".to_string())?;
+        let mut stderr_pipe = child
+            .stderr
+            .take()
+            .ok_or_else(|| "WhisperX stderr pipe missing".to_string())?;
 
-        if !output.status.success() {
-            if let Ok(err) = serde_json::from_str::<WhisperXError>(&stdout) {
-                return Err(format!("WhisperX-Fehler: {}", err.error));
+        let stderr_handle = thread::spawn(move || {
+            let mut s = String::new();
+            let _ = stderr_pipe.read_to_string(&mut s);
+            s
+        });
+
+        let stdout_handle = thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = stdout_pipe.read_to_end(&mut buf);
+            buf
+        });
+
+        let timeout = Duration::from_secs(self.timeout_secs);
+        let start = Instant::now();
+
+        loop {
+            if start.elapsed() >= timeout {
+                let _ = child.kill();
+                let _ = child.wait();
+                let _ = stdout_handle.join();
+                let _ = stderr_handle.join();
+                return Err(TRANSCRIPTION_TIMEOUT_ERROR.to_string());
             }
-            return Err(format!(
-                "WhisperX-Fehler (Exit {}): {}",
-                output.status.code().unwrap_or(-1),
-                if stderr.is_empty() {
-                    stdout.as_ref()
-                } else {
-                    stderr.as_ref()
+
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let stdout_bytes = stdout_handle
+                        .join()
+                        .map_err(|_| "WhisperX stdout reader failed".to_string())?;
+                    let stderr_str = stderr_handle.join().unwrap_or_default();
+
+                    let stdout = String::from_utf8_lossy(&stdout_bytes);
+
+                    if !status.success() {
+                        if let Ok(err) = serde_json::from_str::<WhisperXError>(&stdout) {
+                            return Err(format!("WhisperX-Fehler: {}", err.error));
+                        }
+                        return Err(format!(
+                            "WhisperX-Fehler (Exit {}): {}",
+                            status.code().unwrap_or(-1),
+                            if stderr_str.is_empty() {
+                                stdout.as_ref()
+                            } else {
+                                stderr_str.as_ref()
+                            }
+                        ));
+                    }
+
+                    if let Ok(err) = serde_json::from_str::<WhisperXError>(&stdout) {
+                        return Err(format!("WhisperX-Fehler: {}", err.error));
+                    }
+
+                    return serde_json::from_str::<WhisperXOutput>(&stdout).map_err(|e| {
+                        format!(
+                            "WhisperX-Output nicht parsbar: {} — Output: {}",
+                            e, stdout
+                        )
+                    });
                 }
-            ));
+                Ok(None) => {
+                    std::thread::sleep(Duration::from_millis(200));
+                }
+                Err(e) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = stdout_handle.join();
+                    let _ = stderr_handle.join();
+                    return Err(format!("WhisperX-Prozessfehler: {}", e));
+                }
+            }
         }
-
-        if let Ok(err) = serde_json::from_str::<WhisperXError>(&stdout) {
-            return Err(format!("WhisperX-Fehler: {}", err.error));
-        }
-
-        serde_json::from_str::<WhisperXOutput>(&stdout).map_err(|e| {
-            format!(
-                "WhisperX-Output nicht parsbar: {} — Output: {}",
-                e, stdout
-            )
-        })
     }
 
     pub fn check_available(&self) -> bool {

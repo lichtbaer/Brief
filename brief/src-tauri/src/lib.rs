@@ -68,7 +68,17 @@ async fn process_meeting(
     meeting_type: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
-    let transcriber = transcribe::Transcriber::new(None, None);
+    let whisperx_timeout_secs: u64 = {
+        let storage = state.storage.lock().await;
+        storage
+            .get_setting("whisperx_timeout_secs")
+            .await?
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(transcribe::DEFAULT_WHISPERX_TIMEOUT_SECS)
+    };
+
+    let transcriber = transcribe::Transcriber::new(None, None)
+        .with_timeout_secs(whisperx_timeout_secs);
 
     if !transcriber.check_available() {
         return Err(
@@ -439,6 +449,20 @@ async fn update_setting(
         let storage = state.storage.lock().await;
         storage.set_setting("llm_model", trimmed).await?;
         storage.set_setting("llm_model_user_override", "1").await?;
+        return Ok(());
+    }
+    if key == "whisperx_timeout_secs" {
+        let trimmed = value.trim();
+        let v: u64 = trimmed
+            .parse()
+            .map_err(|_| "Timeout muss eine positive Zahl (Sekunden) sein".to_string())?;
+        if !(60..=86400).contains(&v) {
+            return Err("Erlaubt: 60 bis 86400 Sekunden".to_string());
+        }
+        let storage = state.storage.lock().await;
+        storage
+            .set_setting("whisperx_timeout_secs", &v.to_string())
+            .await?;
         return Ok(());
     }
     let storage = state.storage.lock().await;

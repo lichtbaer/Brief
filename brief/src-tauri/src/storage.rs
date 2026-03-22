@@ -100,7 +100,8 @@ impl Storage {
             "INSERT OR IGNORE INTO settings VALUES
                 ('meeting_language', 'de', datetime('now')),
                 ('retain_audio', 'false', datetime('now')),
-                ('ui_language', 'de', datetime('now'))",
+                ('ui_language', 'de', datetime('now')),
+                ('whisperx_timeout_secs', '900', datetime('now'))",
         )
         .execute(&self.pool)
         .await
