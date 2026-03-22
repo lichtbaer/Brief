@@ -56,8 +56,6 @@ async fn stop_recording(
 async fn process_meeting(
     session_id: String,
     audio_path: String,
-    meeting_type: String,
-    title: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
     let transcriber = transcribe::Transcriber::new(None, None);
@@ -75,30 +73,76 @@ async fn process_meeting(
         .await
         .map_err(|e| format!("Task-Fehler: {}", e))??;
 
-    let meeting = storage::meeting_from_transcription(
-        session_id.clone(),
-        meeting_type,
-        title.unwrap_or_else(|| "Meeting".to_string()),
-        None,
-        &result.segments,
-        &result.language,
+    let transcript = result
+        .segments
+        .iter()
+        .map(|s| format!("[{}] {}", s.speaker, s.text))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Placeholder MeetingOutput — summarization in Phase 2 (BRIEF-005)
+    let output = crate::types::MeetingOutput {
+        summary_short: "Zusammenfassung folgt in Phase 2.".to_string(),
+        topics: vec![],
+        decisions: vec![],
+        action_items: vec![],
+        follow_up_draft: serde_json::json!({}),
+        participants_mentioned: vec![],
+        template_used: "none".to_string(),
+        model_used: "whisper".to_string(),
+        generated_at: now.clone(),
+    };
+
+    let duration_seconds = if result.segments.is_empty() {
+        0
+    } else {
+        let start = result
+            .segments
+            .first()
+            .map(|s| s.start)
+            .unwrap_or(0.0)
+            .max(0.0);
+        let end = result
+            .segments
+            .last()
+            .map(|s| s.end)
+            .unwrap_or(0.0)
+            .max(0.0);
+        ((end - start).max(0.0).ceil() as u32).max(1)
+    };
+
+    let title = format!(
+        "Meeting {}",
+        session_id.chars().take(8).collect::<String>()
     );
+
+    let meeting = crate::types::Meeting {
+        id: session_id.clone(),
+        created_at: now.clone(),
+        ended_at: now.clone(),
+        duration_seconds,
+        meeting_type: "consulting".to_string(),
+        title,
+        transcript,
+        output,
+        audio_path: None,
+        tags: vec![],
+    };
 
     {
         let storage = state.storage.lock().await;
         storage.save_meeting(&meeting).await?;
     }
 
-    std::fs::remove_file(&audio_path).ok();
+    if let Err(e) = std::fs::remove_file(&audio_path) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            return Err(e.to_string());
+        }
+    }
 
-    Ok(serde_json::json!({
-        "session_id": session_id,
-        "segments": result.segments,
-        "language": result.language,
-        "status": "transcribed",
-        "meeting_id": meeting.id,
-    })
-    .to_string())
+    Ok(serde_json::to_string(&meeting).map_err(|e| e.to_string())?)
 }
 
 #[tauri::command]
