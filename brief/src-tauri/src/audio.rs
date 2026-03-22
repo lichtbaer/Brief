@@ -36,7 +36,9 @@ impl AudioRecorder {
             .default_input_device()
             .ok_or_else(|| "Kein Mikrofon gefunden".to_string())?;
 
-        let supported = device.default_input_config().map_err(|e| e.to_string())?;
+        let supported = device
+            .default_input_config()
+            .map_err(|e| e.to_string())?;
 
         let sample_rate = supported.sample_rate().0;
         self.source_sample_rate = Some(sample_rate);
@@ -55,12 +57,12 @@ impl AudioRecorder {
                 cpal::SampleFormat::I8 => match {
                     let buf = Arc::clone(&buffer);
                     device.build_input_stream(
-                        &stream_config,
-                        move |data: &[i8], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
+                    &stream_config,
+                    move |data: &[i8], _: &_| {
+                        push_mono_frames(data, channels, &buf);
+                    },
+                    err_fn,
+                    None,
                     )
                 } {
                     Ok(s) => s,
@@ -72,12 +74,12 @@ impl AudioRecorder {
                 cpal::SampleFormat::I16 => match {
                     let buf = Arc::clone(&buffer);
                     device.build_input_stream(
-                        &stream_config,
-                        move |data: &[i16], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
+                    &stream_config,
+                    move |data: &[i16], _: &_| {
+                        push_mono_frames(data, channels, &buf);
+                    },
+                    err_fn,
+                    None,
                     )
                 } {
                     Ok(s) => s,
@@ -89,12 +91,12 @@ impl AudioRecorder {
                 cpal::SampleFormat::I32 => match {
                     let buf = Arc::clone(&buffer);
                     device.build_input_stream(
-                        &stream_config,
-                        move |data: &[i32], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
+                    &stream_config,
+                    move |data: &[i32], _: &_| {
+                        push_mono_frames(data, channels, &buf);
+                    },
+                    err_fn,
+                    None,
                     )
                 } {
                     Ok(s) => s,
@@ -106,12 +108,12 @@ impl AudioRecorder {
                 cpal::SampleFormat::I64 => match {
                     let buf = Arc::clone(&buffer);
                     device.build_input_stream(
-                        &stream_config,
-                        move |data: &[i64], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
+                    &stream_config,
+                    move |data: &[i64], _: &_| {
+                        push_mono_frames(data, channels, &buf);
+                    },
+                    err_fn,
+                    None,
                     )
                 } {
                     Ok(s) => s,
@@ -123,12 +125,12 @@ impl AudioRecorder {
                 cpal::SampleFormat::U8 => match {
                     let buf = Arc::clone(&buffer);
                     device.build_input_stream(
-                        &stream_config,
-                        move |data: &[u8], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
+                    &stream_config,
+                    move |data: &[u8], _: &_| {
+                        push_mono_frames(data, channels, &buf);
+                    },
+                    err_fn,
+                    None,
                     )
                 } {
                     Ok(s) => s,
@@ -140,12 +142,12 @@ impl AudioRecorder {
                 cpal::SampleFormat::U16 => match {
                     let buf = Arc::clone(&buffer);
                     device.build_input_stream(
-                        &stream_config,
-                        move |data: &[u16], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
+                    &stream_config,
+                    move |data: &[u16], _: &_| {
+                        push_mono_frames(data, channels, &buf);
+                    },
+                    err_fn,
+                    None,
                     )
                 } {
                     Ok(s) => s,
@@ -157,12 +159,12 @@ impl AudioRecorder {
                 cpal::SampleFormat::U32 => match {
                     let buf = Arc::clone(&buffer);
                     device.build_input_stream(
-                        &stream_config,
-                        move |data: &[u32], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
+                    &stream_config,
+                    move |data: &[u32], _: &_| {
+                        push_mono_frames(data, channels, &buf);
+                    },
+                    err_fn,
+                    None,
                     )
                 } {
                     Ok(s) => s,
@@ -174,12 +176,12 @@ impl AudioRecorder {
                 cpal::SampleFormat::U64 => match {
                     let buf = Arc::clone(&buffer);
                     device.build_input_stream(
-                        &stream_config,
-                        move |data: &[u64], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
+                    &stream_config,
+                    move |data: &[u64], _: &_| {
+                        push_mono_frames(data, channels, &buf);
+                    },
+                    err_fn,
+                    None,
                     )
                 } {
                     Ok(s) => s,
@@ -191,12 +193,12 @@ impl AudioRecorder {
                 cpal::SampleFormat::F32 => match {
                     let buf = Arc::clone(&buffer);
                     device.build_input_stream(
-                        &stream_config,
-                        move |data: &[f32], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
+                    &stream_config,
+                    move |data: &[f32], _: &_| {
+                        push_mono_frames(data, channels, &buf);
+                    },
+                    err_fn,
+                    None,
                     )
                 } {
                     Ok(s) => s,
@@ -208,12 +210,12 @@ impl AudioRecorder {
                 cpal::SampleFormat::F64 => match {
                     let buf = Arc::clone(&buffer);
                     device.build_input_stream(
-                        &stream_config,
-                        move |data: &[f64], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
+                    &stream_config,
+                    move |data: &[f64], _: &_| {
+                        push_mono_frames(data, channels, &buf);
+                    },
+                    err_fn,
+                    None,
                     )
                 } {
                     Ok(s) => s,
@@ -269,7 +271,8 @@ impl AudioRecorder {
             sample_format: hound::SampleFormat::Float,
         };
 
-        let mut writer = hound::WavWriter::create(output_path, spec).map_err(|e| e.to_string())?;
+        let mut writer =
+            hound::WavWriter::create(output_path, spec).map_err(|e| e.to_string())?;
 
         for sample in samples_16k {
             writer.write_sample(sample).map_err(|e| e.to_string())?;
@@ -289,7 +292,12 @@ where
     if let Ok(mut buf) = buffer.lock() {
         for frame in input.chunks(ch) {
             let n = frame.len() as f32;
-            let mono = frame.iter().copied().map(f32::from_sample).sum::<f32>() / n;
+            let mono = frame
+                .iter()
+                .copied()
+                .map(f32::from_sample)
+                .sum::<f32>()
+                / n;
             buf.push(mono);
         }
     }
