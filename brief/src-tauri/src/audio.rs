@@ -1,7 +1,7 @@
-//! Mikrofon-Aufnahme via CPAL, Ausgabe als 16 kHz mono f32 WAV (Whisper).
+//! Microphone capture via CPAL, output as 16 kHz mono f32 WAV (Whisper).
 //!
-//! Der CPAL-`Stream` ist auf Linux nicht `Send` und darf nicht in `AppState` liegen.
-//! Die Aufnahme läuft deshalb in einem eigenen Thread, der Stream bleibt dort.
+//! The CPAL `Stream` is not `Send` on Linux and must not live in `AppState`.
+//! Recording therefore runs in a dedicated thread; the stream stays there.
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, Sample};
