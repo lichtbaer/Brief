@@ -28,3 +28,20 @@ pub struct MeetingOutput {
     pub model_used: String,
     pub generated_at: String,
 }
+
+impl MeetingOutput {
+    /// Creates a placeholder output when summarization is unavailable.
+    pub fn placeholder(meeting_type: &str) -> Self {
+        MeetingOutput {
+            summary_short: "Summarization not available — transcript saved.".to_string(),
+            topics: vec![],
+            decisions: vec![],
+            action_items: vec![],
+            follow_up_draft: serde_json::json!({}),
+            participants_mentioned: vec![],
+            template_used: meeting_type.to_string(),
+            model_used: "none".to_string(),
+            generated_at: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+}
