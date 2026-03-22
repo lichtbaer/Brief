@@ -16,11 +16,22 @@ interface HistoryViewProps {
   onOpenMeeting: (meeting: Meeting) => void;
 }
 
+function SkeletonCards() {
+  return (
+    <div aria-hidden="true">
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="skeleton skeleton-card" />
+      ))}
+    </div>
+  );
+}
+
 export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
   const { t } = useTranslation();
   const [meetings, setMeetings] = useState<MeetingSummary[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [openError, setOpenError] = useState<string | null>(null);
 
   const loadMeetings = useCallback(async () => {
     setLoading(true);
@@ -62,19 +73,21 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
     });
 
   const openMeeting = async (id: string) => {
+    setOpenError(null);
     try {
       const json = await invoke<string>("get_meeting", { id });
       const meeting = JSON.parse(json) as Meeting;
       onOpenMeeting(meeting);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      window.alert(t("errors.alert", { message }));
+      setOpenError(message);
+      setTimeout(() => setOpenError(null), 5000);
     }
   };
 
   return (
-    <section aria-label={t("nav.history")} className="history-view">
-      <h1 style={{ fontSize: "1.25rem", marginBottom: "0.75rem" }}>
+    <section aria-label={t("nav.history")} style={{ maxWidth: "40rem" }}>
+      <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "1rem" }}>
         {t("history.title")}
       </h1>
 
@@ -83,48 +96,37 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
         placeholder={t("history.search_placeholder")}
         value={searchQuery}
         onChange={(e) => void handleSearch(e.target.value)}
-        className="search-input"
-        style={{
-          width: "100%",
-          maxWidth: "32rem",
-          padding: "0.5rem 0.75rem",
-          marginBottom: "1rem",
-          borderRadius: "6px",
-          border: "1px solid #e5e5e5",
-          fontSize: "1rem",
-        }}
+        className="form-input"
+        style={{ maxWidth: "32rem", marginBottom: "1.25rem" }}
         aria-label={t("history.search_placeholder")}
       />
 
+      {openError && (
+        <div className="alert alert-error">
+          <span>⚠</span>
+          <span>{t("errors.alert", { message: openError })}</span>
+        </div>
+      )}
+
       {loading ? (
-        <p role="status">{t("history.loading")}</p>
+        <div aria-busy="true" aria-label={t("history.loading")}>
+          <SkeletonCards />
+        </div>
       ) : meetings.length === 0 ? (
-        <p role="status">{t("history.empty")}</p>
+        <div className="empty-state" role="status">
+          <span className="empty-state-icon">🎙</span>
+          <p>{t("history.empty_state")}</p>
+        </div>
       ) : (
-        <div className="meeting-list" style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+        <div style={{ display: "flex", flexDirection: "column" }}>
           {meetings.map((m) => (
-            <div
+            <button
               key={m.id}
-              role="button"
-              tabIndex={0}
+              type="button"
               className="meeting-card"
               onClick={() => void openMeeting(m.id)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  void openMeeting(m.id);
-                }
-              }}
-              style={{
-                padding: "0.75rem 1rem",
-                border: "1px solid #e5e5e5",
-                borderRadius: "8px",
-                cursor: "pointer",
-                background: "#fafafa",
-              }}
             >
               <div
-                className="meeting-card-header"
                 style={{
                   display: "flex",
                   justifyContent: "space-between",
@@ -134,34 +136,34 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
                 }}
               >
                 <span
-                  className="meeting-type-badge"
                   style={{
                     fontSize: "0.75rem",
                     fontWeight: 600,
-                    color: "#525252",
+                    color: "var(--color-text-muted)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.04em",
                   }}
                 >
                   {t(`meeting_types.${m.meeting_type}`)}
                 </span>
-                <span className="meeting-date" style={{ fontSize: "0.8rem", color: "#737373" }}>
+                <span style={{ fontSize: "0.8rem", color: "var(--color-text-subtle)" }}>
                   {formatDate(m.created_at)}
                 </span>
               </div>
-              <h2 style={{ fontSize: "1.05rem", margin: "0 0 0.35rem" }}>{m.title}</h2>
+              <h2 style={{ fontSize: "1rem", fontWeight: 600, margin: "0 0 0.35rem", color: "var(--color-text)" }}>
+                {m.title}
+              </h2>
               {typeof m.summary_short === "string" && m.summary_short.length > 0 && (
-                <p className="summary-preview" style={{ margin: "0 0 0.5rem", color: "#404040", fontSize: "0.9rem" }}>
+                <p style={{ margin: "0 0 0.5rem", color: "var(--color-text-muted)", fontSize: "0.875rem", lineHeight: 1.5 }}>
                   {m.summary_short}
                 </p>
               )}
               {m.action_items_count !== undefined && m.action_items_count > 0 && (
-                <span
-                  className="action-items-badge"
-                  style={{ fontSize: "0.8rem", fontWeight: 600, color: "#166534" }}
-                >
+                <span style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--color-success)" }}>
                   {t("history.action_items_count", { count: m.action_items_count })}
                 </span>
               )}
-            </div>
+            </button>
           ))}
         </div>
       )}

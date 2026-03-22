@@ -23,48 +23,43 @@ export function OnboardingWizard({ onComplete }: Props) {
   const { t } = useTranslation();
   const [step, setStep] = useState<OnboardingStep>("welcome");
   const [whisperxOk, setWhisperxOk] = useState<boolean | null>(null);
-  const [ollamaStatus, setOllamaStatus] = useState<OllamaCheckResult | null>(
-    null,
-  );
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaCheckResult | null>(null);
+  const [checkingWhisperx, setCheckingWhisperx] = useState(false);
+  const [checkingOllama, setCheckingOllama] = useState(false);
 
   const checkWhisperX = async () => {
+    setCheckingWhisperx(true);
     setWhisperxOk(null);
     try {
       const ok = await invoke<boolean>("check_whisperx");
       setWhisperxOk(ok);
     } catch {
       setWhisperxOk(false);
+    } finally {
+      setCheckingWhisperx(false);
     }
   };
 
   const checkOllama = async () => {
+    setCheckingOllama(true);
     setOllamaStatus(null);
     try {
       const status = await invoke<OllamaCheckResult>("check_ollama");
       setOllamaStatus(status);
     } catch {
       try {
-        const snap = await invoke<AppSettingsSnapshot>(
-          "get_app_settings_snapshot",
-        );
-        setOllamaStatus({
-          running: false,
-          recommended_model: snap.recommendedModel,
-        });
+        const snap = await invoke<AppSettingsSnapshot>("get_app_settings_snapshot");
+        setOllamaStatus({ running: false, recommended_model: snap.recommendedModel });
       } catch {
-        setOllamaStatus({
-          running: false,
-          recommended_model: "llama3.1:8b",
-        });
+        setOllamaStatus({ running: false, recommended_model: "llama3.1:8b" });
       }
+    } finally {
+      setCheckingOllama(false);
     }
   };
 
   const complete = async () => {
-    await invoke("update_setting", {
-      key: "onboarding_complete",
-      value: "true",
-    });
+    await invoke("update_setting", { key: "onboarding_complete", value: "true" });
     onComplete();
   };
 
@@ -72,9 +67,7 @@ export function OnboardingWizard({ onComplete }: Props) {
     <div className="onboarding-wizard">
       {step === "welcome" && (
         <div className="onboarding-step">
-          <h1>
-            {t("onboarding.welcome_title")}
-          </h1>
+          <h1>{t("onboarding.welcome_title")}</h1>
           <p>{t("onboarding.welcome_text")}</p>
           <button
             type="button"
@@ -92,8 +85,15 @@ export function OnboardingWizard({ onComplete }: Props) {
       {step === "whisperx" && (
         <div className="onboarding-step">
           <h2>{t("onboarding.whisperx_title")}</h2>
-          {whisperxOk === null && <p>{t("onboarding.checking")}</p>}
-          {whisperxOk === true && (
+
+          {checkingWhisperx && (
+            <p style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span className="spinner spinner-dark" />
+              {t("onboarding.checking")}
+            </p>
+          )}
+
+          {!checkingWhisperx && whisperxOk === true && (
             <>
               <p className="status-ok">{t("onboarding.whisperx_ok")}</p>
               <button
@@ -108,15 +108,20 @@ export function OnboardingWizard({ onComplete }: Props) {
               </button>
             </>
           )}
-          {whisperxOk === false && (
+
+          {!checkingWhisperx && whisperxOk === false && (
             <>
               <p className="status-error">{t("onboarding.whisperx_missing")}</p>
-              <pre className="setup-command">
-                cd whisperx_runner && bash setup.sh
-              </pre>
-              <button type="button" onClick={() => void checkWhisperX()}>
-                {t("onboarding.retry")}
-              </button>
+              <pre className="setup-command">cd whisperx_runner && bash setup.sh</pre>
+              <div className="onboarding-actions-row">
+                <button
+                  type="button"
+                  onClick={() => void checkWhisperX()}
+                  disabled={checkingWhisperx}
+                >
+                  {t("onboarding.retry")}
+                </button>
+              </div>
             </>
           )}
         </div>
@@ -125,8 +130,15 @@ export function OnboardingWizard({ onComplete }: Props) {
       {step === "ollama" && (
         <div className="onboarding-step">
           <h2>{t("onboarding.ollama_title")}</h2>
-          {ollamaStatus === null && <p>{t("onboarding.checking")}</p>}
-          {ollamaStatus?.running === true && (
+
+          {checkingOllama && (
+            <p style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span className="spinner spinner-dark" />
+              {t("onboarding.checking")}
+            </p>
+          )}
+
+          {!checkingOllama && ollamaStatus?.running === true && (
             <>
               <p className="status-ok">{t("onboarding.ollama_ok")}</p>
               <p>
@@ -142,18 +154,21 @@ export function OnboardingWizard({ onComplete }: Props) {
               </button>
             </>
           )}
-          {ollamaStatus?.running === false && (
+
+          {!checkingOllama && ollamaStatus?.running === false && (
             <>
               <p className="status-error">{t("onboarding.ollama_missing")}</p>
               <pre className="setup-command">ollama serve</pre>
               <p>
                 {t("onboarding.ollama_model_hint")}:{" "}
-                <code>
-                  ollama pull {ollamaStatus.recommended_model}
-                </code>
+                <code>ollama pull {ollamaStatus.recommended_model}</code>
               </p>
               <div className="onboarding-actions-row">
-                <button type="button" onClick={() => void checkOllama()}>
+                <button
+                  type="button"
+                  onClick={() => void checkOllama()}
+                  disabled={checkingOllama}
+                >
                   {t("onboarding.retry")}
                 </button>
                 <button
