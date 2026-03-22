@@ -13,6 +13,11 @@
     "history": "Verlauf",
     "settings": "Einstellungen"
   },
+  "meeting_types": {
+    "consulting": "Beratungsgespräch",
+    "legal": "Mandantengespräch",
+    "internal": "Internes Meeting"
+  },
   "recording": {
     "smoke_test_heading": "Brief — Phase 1 Smoke Test",
     "meeting_id_label": "Meeting-ID:",
@@ -29,10 +34,7 @@
     "btn_start": "Aufnahme starten",
     "btn_stop": "Stoppen & Verarbeiten",
     "btn_restart": "Neu starten",
-    "smoke_test_heading": "Brief — Phase 1 Smoke Test",
-    "meeting_id_label": "Meeting-ID:",
-    "transcript_preview_label": "Transkript-Preview:",
-    "meeting_title_label": "Titel:"
+    "meeting_type_label": "Meeting-Typ"
   },
   "errors": {
     "whisperx_unavailable": "WhisperX ist nicht verfügbar. Bitte Python-Umgebung einrichten: cd whisperx_runner && bash setup.sh",
