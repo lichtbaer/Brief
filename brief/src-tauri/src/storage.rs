@@ -96,6 +96,16 @@ impl Storage {
         .await
         .map_err(|e| format!("Default-Settings fehlgeschlagen: {}", e))?;
 
+        sqlx::query(
+            "INSERT OR IGNORE INTO settings VALUES
+                ('meeting_language', 'de', datetime('now')),
+                ('retain_audio', 'false', datetime('now')),
+                ('ui_language', 'de', datetime('now'))",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Default-Settings fehlgeschlagen: {}", e))?;
+
         Ok(())
     }
 
@@ -119,6 +129,26 @@ impl Storage {
         .await
         .map_err(|e| format!("Setting speichern fehlgeschlagen: {}", e))?;
         Ok(())
+    }
+
+    /// Returns all settings rows as a JSON object (`key` → string value).
+    pub async fn get_all_settings(&self) -> Result<String, String> {
+        let rows = sqlx::query("SELECT key, value FROM settings")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| format!("get_all_settings failed: {}", e))?;
+
+        let map: serde_json::Map<String, serde_json::Value> = rows
+            .iter()
+            .map(|r| {
+                (
+                    r.get::<String, _>("key"),
+                    serde_json::Value::String(r.get::<String, _>("value")),
+                )
+            })
+            .collect();
+
+        serde_json::to_string(&map).map_err(|e| e.to_string())
     }
 
     /// Applies RAM-based default for `llm_model` unless the user chose a manual override.

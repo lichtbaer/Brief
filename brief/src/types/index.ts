@@ -1,5 +1,16 @@
 export type MeetingType = "consulting" | "legal" | "internal" | "custom";
 
+/** Keys persisted in SQLite `settings` (snake_case matches DB). */
+export interface PersistedSettings {
+  ollama_url: string;
+  llm_model: string;
+  default_meeting_type: string;
+  meeting_language: string;
+  retain_audio: string;
+  retention_days: string;
+  ui_language?: string;
+}
+
 /** Mirrors `AppSettingsSnapshot` from the Tauri backend. */
 export interface AppSettingsSnapshot {
   memoryGb: number;

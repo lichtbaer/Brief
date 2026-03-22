@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LowRamOnboardingBanner } from "./components/LowRamOnboardingBanner";
+import i18n from "./i18n";
 import type { AppSettingsSnapshot, Meeting } from "./types";
 import { HistoryView } from "./views/HistoryView";
 import { OutputView } from "./views/OutputView";
@@ -35,6 +36,18 @@ export default function App() {
     void invoke<AppSettingsSnapshot>("get_app_settings_snapshot")
       .then(setSettingsSnapshot)
       .catch(() => setSettingsSnapshot(null));
+  }, []);
+
+  useEffect(() => {
+    void invoke<string>("get_all_settings")
+      .then((raw) => {
+        const parsed = JSON.parse(raw) as Record<string, string>;
+        const lang = parsed.ui_language;
+        if (lang === "en" || lang === "de") {
+          void i18n.changeLanguage(lang);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleLowRamDismissed = () => {

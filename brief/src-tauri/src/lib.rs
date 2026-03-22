@@ -234,6 +234,34 @@ async fn dismiss_low_ram_onboarding(state: tauri::State<'_, AppState>) -> Result
     Ok(())
 }
 
+/// Get all settings as a JSON object (string values).
+#[tauri::command]
+async fn get_all_settings(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let storage = state.storage.lock().await;
+    storage.get_all_settings().await
+}
+
+/// Update a single setting (persists immediately).
+#[tauri::command]
+async fn update_setting(
+    key: String,
+    value: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    if key == "llm_model" {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Err("Modellname darf nicht leer sein".to_string());
+        }
+        let storage = state.storage.lock().await;
+        storage.set_setting("llm_model", trimmed).await?;
+        storage.set_setting("llm_model_user_override", "1").await?;
+        return Ok(());
+    }
+    let storage = state.storage.lock().await;
+    storage.set_setting(&key, &value).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -280,7 +308,9 @@ pub fn run() {
             search_meetings,
             get_app_settings_snapshot,
             set_llm_model,
-            dismiss_low_ram_onboarding
+            dismiss_low_ram_onboarding,
+            get_all_settings,
+            update_setting
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -68,15 +68,24 @@
     "audio_not_saved": "Audio nicht gespeichert (Opt-in in Einstellungen aktivieren)"
   },
   "settings": {
+    "title": "Einstellungen",
+    "loading": "Lade Einstellungen…",
+    "saved": "✓ Gespeichert",
+    "ai_section": "KI & Modell",
+    "ollama_url": "Ollama URL",
+    "llm_model": "LLM-Modell",
+    "llm_model_hint": "z. B. llama3.1:8b oder llama3.2:3b",
+    "recording_section": "Aufnahme",
+    "meeting_language": "Meeting-Sprache",
+    "default_meeting_type": "Standard Meeting-Typ",
     "retain_audio_label": "Audio nach Transkription behalten (Opt-in)",
     "retain_audio_description": "Standard: Audio wird nach Transkription gelöscht. Wenn aktiviert, wird die Aufnahme verschlüsselt im App-Ordner gespeichert.",
+    "app_section": "App",
+    "ui_language": "Sprache der Benutzeroberfläche",
+    "retention_days": "Aufbewahrungsdauer (Tage)",
+    "retention_days_hint": "Meetings älter als X Tage werden automatisch gelöscht",
     "memory_detected": "Erkanntes Arbeitsspeicher: ca. {{gb}} GB",
-    "llm_model_label": "Ollama-LLM-Modell",
-    "llm_model_save": "Modell speichern",
-    "llm_model_saved": "Gespeichert.",
-    "llm_model_save_error": "Speichern fehlgeschlagen.",
-    "llm_model_override_hint": "Manuelle Auswahl aktiv — automatische RAM-Empfehlung wird nicht mehr angewendet.",
-    "loading": "Einstellungen werden geladen…"
+    "llm_model_override_hint": "Manuelle Auswahl aktiv — automatische RAM-Empfehlung wird nicht mehr angewendet."
   },
   "onboarding": {
     "low_ram": {
