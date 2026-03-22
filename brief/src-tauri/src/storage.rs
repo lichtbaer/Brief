@@ -160,6 +160,7 @@ fn escape_key_pragma(key: &str) -> String {
 }
 
 /// Build a [Meeting] from WhisperX output (LLM step can fill [MeetingOutput] later).
+#[allow(dead_code)] // Used by unit tests; summarization may reuse in Phase 2.
 pub fn meeting_from_transcription(
     session_id: String,
     meeting_type: String,

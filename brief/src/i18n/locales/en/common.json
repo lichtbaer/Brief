@@ -14,6 +14,10 @@
     "settings": "Settings"
   },
   "recording": {
+    "smoke_test_heading": "Brief — Phase 1 Smoke Test",
+    "meeting_id_label": "Meeting ID:",
+    "transcript_preview_label": "Transcript preview:",
+    "meeting_title_label": "Title:",
     "aria_section": "Recording",
     "aria_transcript": "Transcript",
     "status_label_prefix": "Status: ",

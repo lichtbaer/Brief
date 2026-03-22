@@ -1,25 +1,23 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { MeetingType } from "../types";
+import type { Meeting } from "../types";
 
-type Segment = {
-  speaker: string;
-  start: number;
-  end: number;
-  text: string;
-};
-
-type RecordingStatus = "idle" | "recording" | "processing" | "done" | "error";
+type AppStatus = "idle" | "recording" | "processing" | "done" | "error";
 
 export function RecordingView() {
   const { t } = useTranslation();
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [status, setStatus] = useState<RecordingStatus>("idle");
-  const [segments, setSegments] = useState<Segment[]>([]);
+  const [status, setStatus] = useState<AppStatus>("idle");
   const [error, setError] = useState<string | null>(null);
-  const [meetingType] = useState<MeetingType>("consulting");
+  const [meeting, setMeeting] = useState<Meeting | null>(null);
+
+  const reset = () => {
+    setError(null);
+    setMeeting(null);
+    setSessionId(null);
+    setStatus("idle");
+  };
 
   const processMeeting = async (sid: string, audioPath: string) => {
     setStatus("processing");
@@ -27,11 +25,9 @@ export function RecordingView() {
       const result = await invoke<string>("process_meeting", {
         session_id: sid,
         audio_path: audioPath,
-        meeting_type: meetingType,
-        title: null,
       });
-      const data = JSON.parse(result) as { segments: Segment[] };
-      setSegments(data.segments);
+      const parsed = JSON.parse(result) as Meeting;
+      setMeeting(parsed);
       setStatus("done");
     } catch (err) {
       setError(String(err));
@@ -41,14 +37,12 @@ export function RecordingView() {
 
   const startRecording = async () => {
     setError(null);
-    setSegments([]);
-    setStatus("idle");
+    setMeeting(null);
     try {
       const id = await invoke<string>("start_recording", {
-        meeting_type: meetingType,
+        meeting_type: "consulting",
       });
       setSessionId(id);
-      setIsRecording(true);
       setStatus("recording");
     } catch (e) {
       setError(String(e));
@@ -56,7 +50,7 @@ export function RecordingView() {
     }
   };
 
-  const stopRecording = async () => {
+  const stopAndProcess = async () => {
     if (!sessionId) return;
     setError(null);
     const currentSessionId = sessionId;
@@ -64,18 +58,30 @@ export function RecordingView() {
       const path = await invoke<string>("stop_recording", {
         session_id: currentSessionId,
       });
-      setIsRecording(false);
       setSessionId(null);
       await processMeeting(currentSessionId, path);
     } catch (e) {
       setError(String(e));
       setStatus("error");
-      setIsRecording(false);
       setSessionId(null);
     }
   };
 
-  const statusLabel: Record<RecordingStatus, string> = {
+  const onPrimaryClick = () => {
+    if (status === "idle") {
+      void startRecording();
+      return;
+    }
+    if (status === "recording") {
+      void stopAndProcess();
+      return;
+    }
+    if (status === "done" || status === "error") {
+      reset();
+    }
+  };
+
+  const statusLabel: Record<AppStatus, string> = {
     idle: t("recording.status_idle"),
     recording: t("recording.status_recording"),
     processing: t("recording.status_processing"),
@@ -83,27 +89,57 @@ export function RecordingView() {
     error: t("recording.status_error"),
   };
 
+  const buttonLabel =
+    status === "idle"
+      ? t("recording.btn_start")
+      : status === "recording"
+        ? t("recording.btn_stop")
+        : status === "processing"
+          ? t("recording.status_processing")
+          : t("recording.btn_restart");
+
+  const transcriptPreview =
+    meeting?.transcript && meeting.transcript.length > 200
+      ? `${meeting.transcript.slice(0, 200)}…`
+      : (meeting?.transcript ?? "");
+
   return (
-    <section aria-label={t("recording.aria_section")}>
+    <div
+      style={{
+        padding: "2rem",
+        fontFamily: "monospace",
+      }}
+    >
+      <h1>{t("recording.smoke_test_heading")}</h1>
       <p>
         {t("recording.status_label_prefix")}
-        {statusLabel[status]}
+        <strong>{statusLabel[status]}</strong>
       </p>
-      {segments.length > 0 && status === "done" && (
+      {error && (
+        <p style={{ color: "red" }} role="alert">
+          {t("errors.alert", { message: error })}
+        </p>
+      )}
+      {meeting && status === "done" && (
         <div aria-label={t("recording.aria_transcript")}>
-          {segments.map((seg, i) => (
-            <p key={i}>
-              <strong>{t("output.speaker_label", { speaker: seg.speaker })}</strong> {seg.text}
-            </p>
-          ))}
+          <p>
+            {t("recording.meeting_id_label")} {meeting.id}
+          </p>
+          <p>
+            {t("recording.transcript_preview_label")} {transcriptPreview}
+          </p>
+          <p>
+            {t("recording.meeting_title_label")} {meeting.title}
+          </p>
         </div>
       )}
-      {error && (
-        <p role="alert">{t("errors.alert", { message: error })}</p>
-      )}
-      <button type="button" onClick={isRecording ? stopRecording : startRecording}>
-        {isRecording ? t("recording.btn_stop") : t("recording.btn_start")}
+      <button
+        type="button"
+        onClick={onPrimaryClick}
+        disabled={status === "processing"}
+      >
+        {buttonLabel}
       </button>
-    </section>
+    </div>
   );
 }

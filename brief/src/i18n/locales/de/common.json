@@ -14,6 +14,10 @@
     "settings": "Einstellungen"
   },
   "recording": {
+    "smoke_test_heading": "Brief — Phase 1 Smoke Test",
+    "meeting_id_label": "Meeting-ID:",
+    "transcript_preview_label": "Transkript-Preview:",
+    "meeting_title_label": "Titel:",
     "aria_section": "Aufnahme",
     "aria_transcript": "Transkript",
     "status_label_prefix": "Status: ",
@@ -24,7 +28,11 @@
     "status_error": "Fehler",
     "btn_start": "Aufnahme starten",
     "btn_stop": "Stoppen & Verarbeiten",
-    "btn_restart": "Neu starten"
+    "btn_restart": "Neu starten",
+    "smoke_test_heading": "Brief — Phase 1 Smoke Test",
+    "meeting_id_label": "Meeting-ID:",
+    "transcript_preview_label": "Transkript-Preview:",
+    "meeting_title_label": "Titel:"
   },
   "errors": {
     "whisperx_unavailable": "WhisperX ist nicht verfügbar. Bitte Python-Umgebung einrichten: cd whisperx_runner && bash setup.sh",

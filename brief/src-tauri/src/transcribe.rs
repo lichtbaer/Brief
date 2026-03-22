@@ -13,6 +13,7 @@ pub struct DiarizedSegment {
 #[derive(Deserialize)]
 pub struct WhisperXOutput {
     pub segments: Vec<DiarizedSegment>,
+    #[allow(dead_code)]
     pub language: String,
 }
 
