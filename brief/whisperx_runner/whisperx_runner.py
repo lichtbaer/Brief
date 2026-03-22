@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""Local WhisperX CLI: transcribe, align, and diarize a mono WAV; print JSON to stdout.
+
+Expected argv: ``wav_path`` [, ``language`` [, ``model_size``]]. Progress logs go to stderr so Rust can parse stdout only.
+"""
 import sys
 import json
 import whisperx
@@ -6,6 +10,7 @@ from whisperx.diarize import DiarizationPipeline
 
 
 def main():
+    """Load WhisperX on CPU, run transcription + alignment + diarization, emit JSON segments or ``{"error": ...}``."""
     if len(sys.argv) < 2:
         print(json.dumps({"error": "Kein WAV-Pfad angegeben"}))
         sys.exit(1)
@@ -15,6 +20,7 @@ def main():
     model_size = sys.argv[3] if len(sys.argv) > 3 else "base"
 
     def progress(msg: str) -> None:
+        """Write a human-readable status line to stderr (does not pollute JSON stdout)."""
         print(msg, file=sys.stderr, flush=True)
 
     try:

@@ -1,3 +1,7 @@
+//! Tauri application entry: `AppState`, command handlers, and database setup on startup.
+//!
+//! Commands are thin wrappers over [`audio::AudioRecorder`], [`transcribe::Transcriber`], and [`storage::Storage`].
+
 mod audio;
 mod crypto_key;
 mod export;
@@ -18,12 +22,14 @@ use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 use types::AppSettingsSnapshot;
 
+/// Shared mutable state: in-memory recorders, async SQLCipher storage, and app data directory for retained audio.
 pub struct AppState {
     pub recordings: Mutex<HashMap<String, AudioRecorder>>,
     pub storage: tokio::sync::Mutex<Storage>,
     pub app_data_dir: PathBuf,
 }
 
+/// Starts microphone capture for a new session; returns a UUID `session_id` stored in `AppState.recordings`.
 #[tauri::command]
 async fn start_recording(
     meeting_type: String,
@@ -42,6 +48,7 @@ async fn start_recording(
     Ok(session_id)
 }
 
+/// Stops the given session, writes a temp WAV path, and removes the recorder from memory.
 #[tauri::command]
 async fn stop_recording(
     session_id: String,
@@ -61,6 +68,7 @@ async fn stop_recording(
     Ok(audio_path.to_string_lossy().to_string())
 }
 
+/// Runs WhisperX + optional Ollama summarization, persists a [`Meeting`], and returns JSON (deletes or moves temp WAV per `retain_audio`).
 #[tauri::command]
 async fn process_meeting(
     session_id: String,
@@ -88,8 +96,9 @@ async fn process_meeting(
     }
 
     let audio_path_buf = std::path::PathBuf::from(&audio_path);
+    let audio_path_for_transcribe = audio_path_buf.clone();
 
-    let result = tokio::task::spawn_blocking(move || transcriber.transcribe(&audio_path_buf))
+    let result = tokio::task::spawn_blocking(move || transcriber.transcribe(&audio_path_for_transcribe))
         .await
         .map_err(|e| format!("Task-Fehler: {}", e))??;
 
@@ -196,6 +205,7 @@ async fn process_meeting(
     Ok(serde_json::to_string(&meeting).map_err(|e| e.to_string())?)
 }
 
+/// Loads a meeting by id from the database or returns an error string if not found.
 #[tauri::command]
 async fn get_meeting(id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
     let storage = state.storage.lock().await;
@@ -250,6 +260,7 @@ async fn search_meetings(
     storage.search_meetings(&query).await
 }
 
+/// Returns RAM snapshot, recommended LLM model, current model, and low-RAM onboarding flags for the settings UI.
 #[tauri::command]
 async fn get_app_settings_snapshot(
     state: tauri::State<'_, AppState>,
@@ -281,6 +292,7 @@ async fn get_app_settings_snapshot(
     })
 }
 
+/// Persists the LLM model and marks `llm_model_user_override` so auto-recommendations do not overwrite it.
 #[tauri::command]
 async fn set_llm_model(model: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let trimmed = model.trim();
@@ -293,6 +305,7 @@ async fn set_llm_model(model: String, state: tauri::State<'_, AppState>) -> Resu
     Ok(())
 }
 
+/// Persists the user's choice to hide the low-RAM onboarding hint.
 #[tauri::command]
 async fn dismiss_low_ram_onboarding(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let storage = state.storage.lock().await;
@@ -416,6 +429,7 @@ fn safe_export_stem(title: String) -> String {
     }
 }
 
+/// Returns whether the user opted to keep meeting WAV files on disk after processing.
 #[tauri::command]
 async fn get_retain_audio(state: tauri::State<'_, AppState>) -> Result<bool, String> {
     let storage = state.storage.lock().await;
@@ -426,6 +440,7 @@ async fn get_retain_audio(state: tauri::State<'_, AppState>) -> Result<bool, Str
     Ok(v == "true")
 }
 
+/// Persists the retain-audio toggle (`true` / `false` string in settings).
 #[tauri::command]
 async fn set_retain_audio(value: bool, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let storage = state.storage.lock().await;
@@ -469,6 +484,7 @@ async fn update_setting(
     storage.set_setting(&key, &value).await
 }
 
+/// Builds the Tauri app with plugins, initializes encrypted storage and recommended LLM defaults, and registers invoke handlers.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()

@@ -30,10 +30,18 @@ const PRIORITY_BADGE_STYLE: Record<
 };
 
 interface OutputViewProps {
+  /** Meeting to display (summary, topics, transcript, optional retained audio). */
   meeting: Meeting;
+  /** Navigate back to history or home without persisting. */
   onBack: () => void;
 }
 
+/**
+ * Read-only meeting detail: audio playback (if stored), AI output sections, Markdown/PDF/audio export via Tauri + system dialogs.
+ *
+ * @param props.meeting — loaded meeting record.
+ * @param props.onBack — header back action.
+ */
 export function OutputView({ meeting, onBack }: OutputViewProps) {
   const { t } = useTranslation();
   const [exportBusy, setExportBusy] = useState<"markdown" | "pdf" | "audio" | null>(null);

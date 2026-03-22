@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 
+/// Holds one recording session: CPAL capture on a background thread, mono buffer, WAV output at 16 kHz.
 pub struct AudioRecorder {
     pub session_id: String,
     pub meeting_type: String,
@@ -19,6 +20,7 @@ pub struct AudioRecorder {
 }
 
 impl AudioRecorder {
+    /// Creates a recorder for `session_id` with the given `meeting_type` label (stored for future use).
     pub fn new(session_id: String, meeting_type: String) -> Self {
         AudioRecorder {
             session_id,
@@ -30,6 +32,8 @@ impl AudioRecorder {
         }
     }
 
+    /// Opens the default input device, spawns the CPAL stream on a dedicated thread (Linux `Stream` is not `Send`),
+    /// and starts filling the mono `f32` buffer until [`AudioRecorder::stop_and_save`] signals stop.
     pub fn start(&mut self) -> Result<(), String> {
         let host = cpal::default_host();
         let device = host
@@ -244,6 +248,7 @@ impl AudioRecorder {
         Ok(())
     }
 
+    /// Stops capture, joins the stream thread, resamples buffered audio to 16 kHz mono, and writes a float WAV at `output_path`.
     pub fn stop_and_save(&mut self, output_path: &PathBuf) -> Result<(), String> {
         if let Some(tx) = self.stop_tx.take() {
             let _ = tx.send(());

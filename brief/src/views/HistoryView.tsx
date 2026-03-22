@@ -13,6 +13,7 @@ export interface MeetingSummary {
 }
 
 interface HistoryViewProps {
+  /** Invoked with a full `Meeting` after `get_meeting` when the user opens a list item. */
   onOpenMeeting: (meeting: Meeting) => void;
 }
 
@@ -26,6 +27,11 @@ function SkeletonCards() {
   );
 }
 
+/**
+ * Lists past meetings (newest first) with optional FTS search; loads full meeting JSON on card click.
+ *
+ * @param props.onOpenMeeting — parent handles navigation to detail/output.
+ */
 export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
   const { t } = useTranslation();
   const [meetings, setMeetings] = useState<MeetingSummary[]>([]);

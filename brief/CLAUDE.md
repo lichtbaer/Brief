@@ -50,6 +50,42 @@ Add new keys to both `de/common.json` AND `en/common.json`.
 ### 5. TypeScript Strict Mode
 `tsconfig.json` has `"strict": true`. No `any` types without explicit justification.
 
+### 6. Code Must Be Commented
+All non-trivial code must have inline comments explaining **why**, not just **what**.
+
+**Required comments:**
+- Every `pub fn` and `#[tauri::command]` in Rust: doc comment (`///`) explaining purpose, parameters, return value
+- Every module (`//!` at top of each `.rs` file): what this module does
+- Non-obvious logic blocks: why this approach was chosen
+- All error handling decisions: why this error is handled this way
+- Python functions in `whisperx_runner.py`: docstrings
+- React components: JSDoc comment explaining purpose and props
+- Zustand stores: comment on each slice explaining its role
+
+**What NOT to comment:**
+- Self-explanatory variable assignments
+- Simple getters/setters
+- Code that already reads like plain English
+
+**Example (Rust):**
+```rust
+/// Resamples audio from the device's native sample rate to 16kHz mono.
+/// WhisperX requires 16kHz mono input — without resampling, transcription
+/// quality degrades significantly on devices with 44.1kHz or 48kHz default rates.
+fn resample_to_16k(samples: &[f32], source_rate: u32) -> Vec<f32> {
+```
+
+**Example (TypeScript):**
+
+```typescript
+/**
+ * RecordingView — main recording interface.
+ * Handles the full recording lifecycle: idle → recording → processing → done/error.
+ * Communicates with Rust backend via Tauri invoke() calls.
+ */
+export function RecordingView() {
+```
+
 ---
 
 ## Project Structure

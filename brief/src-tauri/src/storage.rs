@@ -6,11 +6,13 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use sqlx::Row;
 use std::path::Path;
 
+/// SQLCipher-backed meeting and settings persistence with FTS5 search index.
 pub struct Storage {
     pool: SqlitePool,
 }
 
 impl Storage {
+    /// Opens or creates an encrypted database at `db_path`, applies migrations (including FTS backfill), and returns a ready pool.
     pub async fn new(db_path: &str, encryption_key: &str) -> Result<Self, String> {
         let key_pragma = format!("'{}'", escape_key_pragma(encryption_key));
 
@@ -133,6 +135,7 @@ impl Storage {
         Ok(())
     }
 
+    /// Reads a single `settings` row by key, or `None` if missing.
     pub async fn get_setting(&self, key: &str) -> Result<Option<String>, String> {
         let row = sqlx::query("SELECT value FROM settings WHERE key = ?")
             .bind(key)
@@ -142,6 +145,7 @@ impl Storage {
         Ok(row.map(|r| r.get::<String, _>("value")))
     }
 
+    /// Upserts a `settings` key/value with `updated_at` set to now.
     pub async fn set_setting(&self, key: &str, value: &str) -> Result<(), String> {
         sqlx::query(
             "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
@@ -197,6 +201,7 @@ impl Storage {
         Ok(())
     }
 
+    /// Returns `(ollama_url, llm_model)` from settings with sensible defaults for summarization.
     pub async fn get_summarizer_config(&self) -> Result<(String, String), String> {
         let url = self
             .get_setting("ollama_url")
@@ -209,6 +214,7 @@ impl Storage {
         Ok((url, model))
     }
 
+    /// Inserts a full meeting row and updates the FTS5 shadow table for title/transcript search.
     pub async fn save_meeting(&self, meeting: &Meeting) -> Result<(), String> {
         let output_json = serde_json::to_string(&meeting.output).map_err(|e| e.to_string())?;
         let tags_json = serde_json::to_string(&meeting.tags).map_err(|e| e.to_string())?;
@@ -325,6 +331,7 @@ impl Storage {
         serde_json::to_string(&meetings).map_err(|e| e.to_string())
     }
 
+    /// Loads one non-deleted meeting as a JSON string for the frontend, or `None` if absent.
     pub async fn get_meeting(&self, id: &str) -> Result<Option<String>, String> {
         let row = sqlx::query(
             "SELECT id, created_at, ended_at, duration_seconds, meeting_type,

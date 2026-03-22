@@ -28,6 +28,10 @@ function mergeSettings(raw: Record<string, string>): PersistedSettings {
   };
 }
 
+/**
+ * Persists app and AI settings (Ollama URL, models, WhisperX timeout, retain audio, UI language) via `get_all_settings` / `update_setting`.
+ * Shows RAM-based model recommendation from `get_app_settings_snapshot`.
+ */
 export function SettingsView() {
   const { t } = useTranslation();
   const [settings, setSettings] = useState<PersistedSettings | null>(null);
