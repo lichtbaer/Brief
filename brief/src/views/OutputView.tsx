@@ -1,4 +1,8 @@
+import { invoke } from "@tauri-apps/api/core";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeFile } from "@tauri-apps/plugin-fs";
 import type { CSSProperties } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   ActionItem,
@@ -6,6 +10,11 @@ import type {
   Meeting,
   Topic,
 } from "../types";
+
+function safeExportBaseName(title: string): string {
+  const trimmed = title.replace(/[/\\?%*:|"<>]/g, "-").trim();
+  return trimmed.length > 0 ? trimmed : "meeting";
+}
 
 const PRIORITY_BADGE_STYLE: Record<
   NonNullable<ActionItem["priority"]>,
@@ -27,12 +36,54 @@ interface OutputViewProps {
 
 export function OutputView({ meeting, onBack }: OutputViewProps) {
   const { t } = useTranslation();
+  const [exportBusy, setExportBusy] = useState<"markdown" | "pdf" | null>(null);
   const output = meeting.output;
   const followUp = output.follow_up_draft;
   const followUpText =
     followUp && typeof followUp.full_text === "string"
       ? followUp.full_text.trim()
       : "";
+
+  const exportMarkdown = async () => {
+    setExportBusy("markdown");
+    try {
+      const markdown = await invoke<string>("export_markdown", {
+        id: meeting.id,
+      });
+      const base = safeExportBaseName(meeting.title);
+      const path = await save({
+        defaultPath: `${base}.md`,
+        filters: [{ name: "Markdown", extensions: ["md"] }],
+      });
+      if (path) {
+        await writeFile(path, new TextEncoder().encode(markdown));
+      }
+    } catch (e) {
+      window.alert(t("errors.alert", { message: String(e) }));
+    } finally {
+      setExportBusy(null);
+    }
+  };
+
+  const exportPdf = async () => {
+    setExportBusy("pdf");
+    try {
+      const pdfBase64 = await invoke<string>("export_pdf", { id: meeting.id });
+      const base = safeExportBaseName(meeting.title);
+      const path = await save({
+        defaultPath: `${base}.pdf`,
+        filters: [{ name: "PDF", extensions: ["pdf"] }],
+      });
+      if (path) {
+        const bytes = Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0));
+        await writeFile(path, bytes);
+      }
+    } catch (e) {
+      window.alert(t("errors.alert", { message: String(e) }));
+    } finally {
+      setExportBusy(null);
+    }
+  };
 
   return (
     <div className="output-view" style={{ maxWidth: "52rem" }}>
@@ -46,6 +97,34 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
         <span className="meeting-type" style={{ color: "#525252" }}>
           {t(`meeting_types.${meeting.meeting_type}`)}
         </span>
+        <div
+          className="export-buttons"
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "0.5rem",
+            marginTop: "1rem",
+          }}
+        >
+          <button
+            type="button"
+            disabled={exportBusy !== null}
+            onClick={() => {
+              void exportMarkdown();
+            }}
+          >
+            {t("output.export_markdown")}
+          </button>
+          <button
+            type="button"
+            disabled={exportBusy !== null}
+            onClick={() => {
+              void exportPdf();
+            }}
+          >
+            {t("output.export_pdf")}
+          </button>
+        </div>
       </div>
 
       <section className="output-section" style={{ marginBottom: "1.5rem" }}>

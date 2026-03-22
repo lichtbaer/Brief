@@ -27,3 +27,7 @@ chrono = { version = "0.4", features = ["serde"] }
 keyring = "3"
 rand = "0.8"
 hex = "0.4"
+printpdf = "0.7"
+base64 = "0.21"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
