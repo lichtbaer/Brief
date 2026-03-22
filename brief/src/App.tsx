@@ -26,6 +26,11 @@ export default function App() {
     setView("recording");
   };
 
+  const handleOpenMeetingFromHistory = (meeting: Meeting) => {
+    setCurrentMeeting(meeting);
+    setView("output");
+  };
+
   useEffect(() => {
     void invoke<AppSettingsSnapshot>("get_app_settings_snapshot")
       .then(setSettingsSnapshot)
@@ -75,7 +80,9 @@ export default function App() {
         ) : (
           <p role="status">{t("output.empty")}</p>
         ))}
-      {view === "history" && <HistoryView />}
+      {view === "history" && (
+        <HistoryView onOpenMeeting={handleOpenMeetingFromHistory} />
+      )}
       {view === "settings" && <SettingsView />}
     </div>
   );

@@ -43,6 +43,13 @@
     "processing_failed": "Verarbeitung fehlgeschlagen: {{message}}",
     "alert": "Fehler: {{message}}"
   },
+  "history": {
+    "title": "Meeting-Verlauf",
+    "search_placeholder": "Meetings durchsuchen…",
+    "loading": "Lade Meetings…",
+    "empty": "Noch keine Meetings gespeichert.",
+    "action_items_count": "{{count}} Action Items"
+  },
   "output": {
     "back": "Zurück",
     "summary": "Zusammenfassung",

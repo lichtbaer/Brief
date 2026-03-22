@@ -43,6 +43,13 @@
     "processing_failed": "Processing failed: {{message}}",
     "alert": "Error: {{message}}"
   },
+  "history": {
+    "title": "Meeting history",
+    "search_placeholder": "Search meetings…",
+    "loading": "Loading meetings…",
+    "empty": "No meetings saved yet.",
+    "action_items_count": "{{count}} action items"
+  },
   "output": {
     "back": "Back",
     "summary": "Summary",

@@ -49,13 +49,26 @@ impl Storage {
         .await
         .map_err(|e| format!("Migration fehlgeschlagen: {}", e))?;
 
+        // Standalone FTS5 (no content=): external-content sync did not populate the inverted index
+        // reliably with SQLCipher; we backfill from `meetings` on startup and upsert on save.
+        sqlx::query("DROP TABLE IF EXISTS meetings_fts")
+            .execute(&self.pool)
+            .await
+            .map_err(|e| format!("FTS-Migration fehlgeschlagen: {}", e))?;
         sqlx::query(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS meetings_fts
-             USING fts5(id UNINDEXED, title, transcript, content='meetings', content_rowid='rowid')",
+            "CREATE VIRTUAL TABLE meetings_fts
+             USING fts5(id UNINDEXED, title, transcript)",
         )
         .execute(&self.pool)
         .await
         .map_err(|e| format!("FTS-Migration fehlgeschlagen: {}", e))?;
+        sqlx::query(
+            "INSERT INTO meetings_fts(rowid, id, title, transcript)
+             SELECT rowid, id, title, transcript FROM meetings WHERE deleted_at IS NULL",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("FTS-Backfill fehlgeschlagen: {}", e))?;
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS settings (
@@ -170,7 +183,7 @@ impl Storage {
             .await
             .map_err(|e| format!("rowid: {}", e))?;
 
-        sqlx::query("INSERT INTO meetings_fts (rowid, id, title, transcript) VALUES (?, ?, ?, ?)")
+        sqlx::query("INSERT INTO meetings_fts(rowid, id, title, transcript) VALUES (?, ?, ?, ?)")
             .bind(rowid)
             .bind(&meeting.id)
             .bind(&meeting.title)
@@ -180,6 +193,82 @@ impl Storage {
             .map_err(|e| format!("FTS-Index fehlgeschlagen: {}", e))?;
 
         Ok(())
+    }
+
+    /// Returns meeting summaries (newest first), without full transcript.
+    pub async fn list_meetings(&self) -> Result<String, String> {
+        let rows = sqlx::query(
+            "SELECT id, created_at, meeting_type, title, output_json
+             FROM meetings WHERE deleted_at IS NULL
+             ORDER BY created_at DESC
+             LIMIT 100",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("list_meetings failed: {}", e))?;
+
+        let meetings: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|r| {
+                let output_str: String = r.get("output_json");
+                let output: serde_json::Value =
+                    serde_json::from_str(&output_str).unwrap_or_else(|_| json!({}));
+                let action_items = output["action_items"].as_array();
+                let action_items_count = action_items.map(|a| a.len()).unwrap_or(0);
+                json!({
+                    "id": r.get::<String, _>("id"),
+                    "created_at": r.get::<String, _>("created_at"),
+                    "meeting_type": r.get::<String, _>("meeting_type"),
+                    "title": r.get::<String, _>("title"),
+                    "summary_short": output["summary_short"],
+                    "action_items_count": action_items_count,
+                })
+            })
+            .collect();
+
+        serde_json::to_string(&meetings).map_err(|e| e.to_string())
+    }
+
+    /// Full-text search across meeting titles and transcripts (FTS5).
+    pub async fn search_meetings(&self, query: &str) -> Result<String, String> {
+        let Some(fts_query) = build_fts5_query(query) else {
+            return Ok("[]".to_string());
+        };
+
+        let rows = sqlx::query(
+            "SELECT m.id, m.created_at, m.meeting_type, m.title, m.output_json
+             FROM meetings_fts
+             JOIN meetings m ON m.id = meetings_fts.id
+             WHERE meetings_fts MATCH ?1
+             AND m.deleted_at IS NULL
+             ORDER BY meetings_fts.rank
+             LIMIT 20",
+        )
+        .bind(&fts_query)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("search_meetings failed: {}", e))?;
+
+        let meetings: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|r| {
+                let output_str: String = r.get("output_json");
+                let output: serde_json::Value =
+                    serde_json::from_str(&output_str).unwrap_or_else(|_| json!({}));
+                let action_items = output["action_items"].as_array();
+                let action_items_count = action_items.map(|a| a.len()).unwrap_or(0);
+                json!({
+                    "id": r.get::<String, _>("id"),
+                    "created_at": r.get::<String, _>("created_at"),
+                    "meeting_type": r.get::<String, _>("meeting_type"),
+                    "title": r.get::<String, _>("title"),
+                    "summary_short": output["summary_short"],
+                    "action_items_count": action_items_count,
+                })
+            })
+            .collect();
+
+        serde_json::to_string(&meetings).map_err(|e| e.to_string())
     }
 
     pub async fn get_meeting(&self, id: &str) -> Result<Option<String>, String> {
@@ -215,6 +304,28 @@ impl Storage {
 
 fn escape_key_pragma(key: &str) -> String {
     key.replace('\'', "''")
+}
+
+/// Builds a safe FTS5 MATCH string (tokens AND-combined; alphanumeric tokens left bare for tokenizer).
+fn build_fts5_query(raw: &str) -> Option<String> {
+    let tokens: Vec<&str> = raw.split_whitespace().filter(|t| !t.is_empty()).collect();
+    if tokens.is_empty() {
+        return None;
+    }
+    Some(
+        tokens
+            .iter()
+            .map(|t| {
+                if t.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    (*t).to_string()
+                } else {
+                    let escaped = t.replace('"', "\"\"");
+                    format!("\"{}\"", escaped)
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" AND "),
+    )
 }
 
 /// Build a [Meeting] from WhisperX output (LLM step can fill [MeetingOutput] later).
@@ -284,6 +395,16 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    #[test]
+    fn build_fts5_query_quotes_and_combines_tokens() {
+        assert_eq!(build_fts5_query("foo bar").as_deref(), Some("foo AND bar"));
+        assert_eq!(build_fts5_query("  "), None);
+        assert_eq!(
+            build_fts5_query("say \"x\"").as_deref(),
+            Some(r#"say AND """x""""#)
+        );
+    }
+
     #[tokio::test]
     async fn migrations_idempotent_and_encrypted_roundtrip() {
         let tmp = std::env::temp_dir().join(format!(
@@ -311,6 +432,13 @@ mod tests {
         let s2 = Storage::new(tmp.to_str().unwrap(), key).await.unwrap();
         let json = s2.get_meeting("id-1").await.unwrap().unwrap();
         assert!(json.contains("\"id\":\"id-1\""));
+
+        let list = s2.list_meetings().await.unwrap();
+        assert!(list.contains("id-1"));
+        assert!(list.contains("summary_short"));
+
+        let search = s2.search_meetings("Title").await.unwrap();
+        assert!(search.contains("id-1"));
 
         let _ = std::fs::remove_file(&tmp);
     }
