@@ -1,0 +1,43 @@
+{
+  "app": {
+    "title": "Brief"
+  },
+  "nav": {
+    "recording": "Aufnahme",
+    "output": "Ausgabe",
+    "history": "Verlauf",
+    "settings": "Einstellungen"
+  },
+  "views": {
+    "output": "Ausgabe",
+    "history": "Verlauf",
+    "settings": "Einstellungen"
+  },
+  "recording": {
+    "aria_section": "Aufnahme",
+    "aria_transcript": "Transkript",
+    "status_label_prefix": "Status: ",
+    "status_idle": "Bereit",
+    "status_recording": "Aufnahme läuft",
+    "status_processing": "Verarbeite...",
+    "status_done": "Fertig",
+    "status_error": "Fehler",
+    "btn_start": "Aufnahme starten",
+    "btn_stop": "Stoppen & Verarbeiten",
+    "btn_restart": "Neu starten"
+  },
+  "errors": {
+    "whisperx_unavailable": "WhisperX ist nicht verfügbar. Bitte Python-Umgebung einrichten: cd whisperx_runner && bash setup.sh",
+    "no_microphone": "Kein Mikrofon gefunden",
+    "processing_failed": "Verarbeitung fehlgeschlagen: {{message}}",
+    "alert": "Fehler: {{message}}"
+  },
+  "output": {
+    "speaker_label": "{{speaker}}:",
+    "audio_not_saved": "Audio nicht gespeichert (Opt-in in Einstellungen aktivieren)"
+  },
+  "settings": {
+    "retain_audio_label": "Audio nach Transkription behalten (Opt-in)",
+    "retain_audio_description": "Standard: Audio wird nach Transkription gelöscht. Wenn aktiviert, wird die Aufnahme verschlüsselt im App-Ordner gespeichert."
+  }
+}
