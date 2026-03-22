@@ -1,5 +1,6 @@
 mod audio;
 mod crypto_key;
+mod memory;
 mod storage;
 mod summarize;
 mod templates;
@@ -11,6 +12,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use storage::Storage;
 use tauri::Manager;
+use types::AppSettingsSnapshot;
 
 pub struct AppState {
     pub recordings: Mutex<HashMap<String, AudioRecorder>>,
@@ -83,7 +85,12 @@ async fn process_meeting(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let summarizer = summarize::Summarizer::new(None, None);
+    let (ollama_url, llm_model) = {
+        let storage = state.storage.lock().await;
+        storage.get_summarizer_config().await?
+    };
+
+    let summarizer = summarize::Summarizer::new(Some(ollama_url), Some(llm_model));
     let output = if summarizer.check_available().await {
         let system_prompt = templates::get_system_prompt(&meeting_type);
         summarizer
@@ -158,6 +165,58 @@ async fn get_meeting(id: String, state: tauri::State<'_, AppState>) -> Result<St
         .ok_or_else(|| format!("Meeting {} nicht gefunden", id))
 }
 
+#[tauri::command]
+async fn get_app_settings_snapshot(
+    state: tauri::State<'_, AppState>,
+) -> Result<AppSettingsSnapshot, String> {
+    let storage = state.storage.lock().await;
+    let memory_gb = memory::get_available_memory_gb();
+    let recommended_model = memory::recommended_llm_model(memory_gb).to_string();
+    let llm_model = storage
+        .get_setting("llm_model")
+        .await?
+        .unwrap_or_else(|| "llama3.1:8b".to_string());
+    let llm_model_user_override = storage
+        .get_setting("llm_model_user_override")
+        .await?
+        .unwrap_or_else(|| "0".to_string())
+        == "1";
+    let dismissed = storage
+        .get_setting("low_ram_onboarding_dismissed")
+        .await?
+        .unwrap_or_else(|| "0".to_string())
+        == "1";
+    let show_low_ram_onboarding = memory_gb <= 8.0 && !dismissed;
+    Ok(AppSettingsSnapshot {
+        memory_gb,
+        recommended_model,
+        llm_model,
+        llm_model_user_override,
+        show_low_ram_onboarding,
+    })
+}
+
+#[tauri::command]
+async fn set_llm_model(model: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let trimmed = model.trim();
+    if trimmed.is_empty() {
+        return Err("Modellname darf nicht leer sein".to_string());
+    }
+    let storage = state.storage.lock().await;
+    storage.set_setting("llm_model", trimmed).await?;
+    storage.set_setting("llm_model_user_override", "1").await?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn dismiss_low_ram_onboarding(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let storage = state.storage.lock().await;
+    storage
+        .set_setting("low_ram_onboarding_dismissed", "1")
+        .await?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -173,13 +232,19 @@ pub fn run() {
             let key = crypto_key::get_or_create_encryption_key(&app_data)?;
 
             let storage = tauri::async_runtime::block_on(async {
-                Storage::new(
+                let storage = Storage::new(
                     db_path
                         .to_str()
                         .ok_or_else(|| "DB-Pfad ungültig".to_string())?,
                     &key,
                 )
-                .await
+                .await?;
+                let ram_gb = memory::get_available_memory_gb();
+                let recommended = memory::recommended_llm_model(ram_gb);
+                storage
+                    .apply_recommended_llm_if_not_overridden(recommended)
+                    .await?;
+                Ok::<_, String>(storage)
             })?;
 
             app.manage(AppState {
@@ -193,7 +258,10 @@ pub fn run() {
             start_recording,
             stop_recording,
             process_meeting,
-            get_meeting
+            get_meeting,
+            get_app_settings_snapshot,
+            set_llm_model,
+            dismiss_low_ram_onboarding
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
