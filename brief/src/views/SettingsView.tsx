@@ -70,127 +70,173 @@ export function SettingsView() {
   if (!settings) {
     return (
       <section aria-label={t("nav.settings")}>
-        <p>{t("settings.loading")}</p>
+        <p style={{ color: "var(--color-text-muted)" }}>{t("settings.loading")}</p>
       </section>
     );
   }
 
   return (
-    <section className="settings-view" aria-label={t("nav.settings")}>
-      <h2 style={{ marginTop: 0 }}>{t("settings.title")}</h2>
-      {saved && (
-        <p className="saved-indicator" role="status">
-          {t("settings.saved")}
+    <section style={{ maxWidth: "36rem" }} aria-label={t("nav.settings")}>
+      <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "1.5rem" }}>
+        <h1 style={{ fontSize: "1.4rem", fontWeight: 700 }}>{t("settings.title")}</h1>
+        {saved && (
+          <span
+            className="alert alert-success"
+            role="status"
+            style={{ padding: "0.3rem 0.75rem", margin: 0, fontSize: "0.85rem" }}
+          >
+            {t("settings.saved")}
+          </span>
+        )}
+      </div>
+
+      {snapshot && (
+        <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginBottom: "1.5rem" }}>
+          {t("settings.memory_detected", { gb: snapshot.memoryGb.toFixed(1) })}
         </p>
       )}
 
-      {snapshot && (
-        <p>{t("settings.memory_detected", { gb: snapshot.memoryGb.toFixed(1) })}</p>
-      )}
+      {/* AI & Model section */}
+      <section style={{ marginBottom: "2rem" }}>
+        <h2 style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--color-text-subtle)", fontWeight: 600, marginBottom: "1rem" }}>
+          {t("settings.ai_section")}
+        </h2>
 
-      <section style={{ marginBottom: "1.25rem" }}>
-        <h3 style={{ marginBottom: "0.5rem" }}>{t("settings.ai_section")}</h3>
-
-        <label style={{ display: "block", marginBottom: "0.75rem" }}>
-          {t("settings.ollama_url")}
+        <div className="form-group">
+          <label className="form-label" htmlFor="ollama-url">
+            {t("settings.ollama_url")}
+          </label>
           <input
+            id="ollama-url"
+            className="form-input"
             value={settings.ollama_url}
             onChange={(e) => void updateSetting("ollama_url", e.target.value)}
-            style={{ display: "block", width: "min(100%, 24rem)", marginTop: "0.25rem" }}
             autoComplete="off"
             spellCheck={false}
+            style={{ maxWidth: "24rem" }}
           />
-        </label>
+        </div>
 
-        <label style={{ display: "block", marginBottom: "0.5rem" }}>
-          {t("settings.llm_model")}
+        <div className="form-group">
+          <label className="form-label" htmlFor="llm-model">
+            {t("settings.llm_model")}
+          </label>
           <input
+            id="llm-model"
+            className="form-input"
             value={settings.llm_model}
             onChange={(e) => void updateSetting("llm_model", e.target.value)}
-            style={{ display: "block", width: "min(100%, 24rem)", marginTop: "0.25rem" }}
             autoComplete="off"
             spellCheck={false}
+            style={{ maxWidth: "24rem" }}
           />
-          <small style={{ display: "block", marginTop: "0.25rem" }}>
+          <small style={{ display: "block", marginTop: "0.35rem", color: "var(--color-text-muted)", fontSize: "0.8rem" }}>
             {t("settings.llm_model_hint")}
           </small>
-        </label>
+        </div>
+
         {snapshot?.llmModelUserOverride && (
-          <p>{t("settings.llm_model_override_hint")}</p>
+          <p style={{ fontSize: "0.85rem", color: "var(--color-warning)", marginTop: "-0.5rem" }}>
+            {t("settings.llm_model_override_hint")}
+          </p>
         )}
       </section>
 
-      <section style={{ marginBottom: "1.25rem" }}>
-        <h3 style={{ marginBottom: "0.5rem" }}>{t("settings.recording_section")}</h3>
+      {/* Recording section */}
+      <section style={{ marginBottom: "2rem" }}>
+        <h2 style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--color-text-subtle)", fontWeight: 600, marginBottom: "1rem" }}>
+          {t("settings.recording_section")}
+        </h2>
 
-        <label style={{ display: "block", marginBottom: "0.75rem" }}>
-          {t("settings.meeting_language")}
+        <div className="form-group">
+          <label className="form-label" htmlFor="meeting-language">
+            {t("settings.meeting_language")}
+          </label>
           <select
+            id="meeting-language"
+            className="form-select"
             value={settings.meeting_language}
             onChange={(e) => void updateSetting("meeting_language", e.target.value)}
-            style={{ display: "block", marginTop: "0.25rem" }}
+            style={{ maxWidth: "14rem" }}
           >
             <option value="de">Deutsch</option>
             <option value="en">English</option>
           </select>
-        </label>
+        </div>
 
-        <label style={{ display: "block", marginBottom: "0.75rem" }}>
-          {t("settings.default_meeting_type")}
+        <div className="form-group">
+          <label className="form-label" htmlFor="default-meeting-type">
+            {t("settings.default_meeting_type")}
+          </label>
           <select
+            id="default-meeting-type"
+            className="form-select"
             value={settings.default_meeting_type}
             onChange={(e) => void updateSetting("default_meeting_type", e.target.value)}
-            style={{ display: "block", marginTop: "0.25rem" }}
+            style={{ maxWidth: "20rem" }}
           >
             <option value="consulting">{t("meeting_types.consulting")}</option>
             <option value="legal">{t("meeting_types.legal")}</option>
             <option value="internal">{t("meeting_types.internal")}</option>
           </select>
-        </label>
+        </div>
 
-        <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <input
-            type="checkbox"
-            checked={settings.retain_audio === "true"}
-            onChange={(e) =>
-              void updateSetting("retain_audio", e.target.checked ? "true" : "false")
-            }
-          />
-          {t("settings.retain_audio_label")}
-        </label>
-        <small style={{ display: "block", marginTop: "0.25rem" }}>
-          {t("settings.retain_audio_description")}
-        </small>
+        <div className="form-group">
+          <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={settings.retain_audio === "true"}
+              onChange={(e) =>
+                void updateSetting("retain_audio", e.target.checked ? "true" : "false")
+              }
+            />
+            <span style={{ fontSize: "0.9rem" }}>{t("settings.retain_audio_label")}</span>
+          </label>
+          <small style={{ display: "block", marginTop: "0.35rem", color: "var(--color-text-muted)", fontSize: "0.8rem", paddingLeft: "1.5rem" }}>
+            {t("settings.retain_audio_description")}
+          </small>
+        </div>
       </section>
 
+      {/* App section */}
       <section>
-        <h3 style={{ marginBottom: "0.5rem" }}>{t("settings.app_section")}</h3>
+        <h2 style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--color-text-subtle)", fontWeight: 600, marginBottom: "1rem" }}>
+          {t("settings.app_section")}
+        </h2>
 
-        <label style={{ display: "block", marginBottom: "0.75rem" }}>
-          {t("settings.ui_language")}
+        <div className="form-group">
+          <label className="form-label" htmlFor="ui-language">
+            {t("settings.ui_language")}
+          </label>
           <select
-            value={settings.ui_language || "de"}
+            id="ui-language"
+            className="form-select"
+            value={settings.ui_language ?? "de"}
             onChange={(e) => void updateSetting("ui_language", e.target.value)}
-            style={{ display: "block", marginTop: "0.25rem" }}
+            style={{ maxWidth: "14rem" }}
           >
             <option value="de">Deutsch</option>
             <option value="en">English</option>
           </select>
-        </label>
+        </div>
 
-        <label style={{ display: "block" }}>
-          {t("settings.retention_days")}
+        <div className="form-group">
+          <label className="form-label" htmlFor="retention-days">
+            {t("settings.retention_days")}
+          </label>
           <input
+            id="retention-days"
             type="number"
+            className="form-input"
             value={settings.retention_days}
             min={0}
             onChange={(e) => void updateSetting("retention_days", e.target.value)}
-            style={{ display: "block", width: "min(100%, 12rem)", marginTop: "0.25rem" }}
+            style={{ maxWidth: "10rem" }}
           />
-          <small style={{ display: "block", marginTop: "0.25rem" }}>
+          <small style={{ display: "block", marginTop: "0.35rem", color: "var(--color-text-muted)", fontSize: "0.8rem" }}>
             {t("settings.retention_days_hint")}
           </small>
-        </label>
+        </div>
       </section>
     </section>
   );

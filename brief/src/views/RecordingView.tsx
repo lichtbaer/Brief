@@ -1,12 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Meeting, MeetingType } from "../types";
 
 type AppStatus = "idle" | "recording" | "processing" | "done" | "error";
+type ProcessingStep = "transcribing" | "summarizing";
 
 interface RecordingViewProps {
   onMeetingDone?: (meeting: Meeting) => void;
+}
+
+function formatTime(seconds: number): string {
+  const m = String(Math.floor(seconds / 60)).padStart(2, "0");
+  const s = String(seconds % 60).padStart(2, "0");
+  return `${m}:${s}`;
 }
 
 export function RecordingView({ onMeetingDone }: RecordingViewProps) {
@@ -16,6 +23,29 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [meetingType, setMeetingType] = useState<MeetingType>("consulting");
+  const [elapsed, setElapsed] = useState(0);
+  const [processingStep, setProcessingStep] = useState<ProcessingStep | null>(null);
+
+  // Elapsed timer during recording
+  useEffect(() => {
+    if (status !== "recording") {
+      setElapsed(0);
+      return;
+    }
+    const id = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [status]);
+
+  // Processing step hints
+  useEffect(() => {
+    if (status !== "processing") {
+      setProcessingStep(null);
+      return;
+    }
+    setProcessingStep("transcribing");
+    const timer = setTimeout(() => setProcessingStep("summarizing"), 8000);
+    return () => clearTimeout(timer);
+  }, [status]);
 
   const reset = () => {
     setError(null);
@@ -92,13 +122,17 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
     }
   };
 
-  const statusLabel: Record<AppStatus, string> = {
-    idle: t("recording.status_idle"),
-    recording: t("recording.status_recording"),
-    processing: t("recording.status_processing"),
-    done: t("recording.status_done"),
-    error: t("recording.status_error"),
-  };
+  const transcriptPreview =
+    meeting?.transcript && meeting.transcript.length > 200
+      ? `${meeting.transcript.slice(0, 200)}…`
+      : (meeting?.transcript ?? "");
+
+  const buttonClass =
+    status === "idle"
+      ? "btn btn-primary"
+      : status === "recording"
+        ? "btn btn-danger"
+        : "btn btn-ghost";
 
   const buttonLabel =
     status === "idle"
@@ -109,68 +143,91 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
           ? t("recording.status_processing")
           : t("recording.btn_restart");
 
-  const transcriptPreview =
-    meeting?.transcript && meeting.transcript.length > 200
-      ? `${meeting.transcript.slice(0, 200)}…`
-      : (meeting?.transcript ?? "");
-
   return (
-    <div
-      style={{
-        padding: "2rem",
-      }}
-    >
-      <h1>{t("recording.smoke_test_heading")}</h1>
+    <div style={{ padding: "2rem", maxWidth: "36rem" }}>
+      <h1 style={{ marginBottom: "1.5rem", fontSize: "1.4rem", fontWeight: 700 }}>
+        {t("recording.title")}
+      </h1>
+
+      {/* Meeting type selector — only visible when idle */}
       {status === "idle" && (
-        <div style={{ marginBottom: "1rem" }}>
-          <label htmlFor="meeting-type-select" style={{ display: "block" }}>
+        <div className="form-group">
+          <label className="form-label" htmlFor="meeting-type-select">
             {t("recording.meeting_type_label")}
           </label>
           <select
             id="meeting-type-select"
+            className="form-select"
             value={meetingType}
-            onChange={(e) =>
-              setMeetingType(e.target.value as MeetingType)
-            }
+            onChange={(e) => setMeetingType(e.target.value as MeetingType)}
           >
-            <option value="consulting">
-              {t("meeting_types.consulting")}
-            </option>
+            <option value="consulting">{t("meeting_types.consulting")}</option>
             <option value="legal">{t("meeting_types.legal")}</option>
-            <option value="internal">
-              {t("meeting_types.internal")}
-            </option>
+            <option value="internal">{t("meeting_types.internal")}</option>
           </select>
         </div>
       )}
-      <p>
-        {t("recording.status_label_prefix")}
-        <strong>{statusLabel[status]}</strong>
-      </p>
-      {error && (
-        <p style={{ color: "red" }} role="alert">
-          {t("errors.alert", { message: error })}
-        </p>
+
+      {/* Recording indicator with elapsed timer */}
+      {status === "recording" && (
+        <div className="record-status-bar">
+          <span className="record-dot" />
+          <span>{t("recording.status_recording")}</span>
+          <span className="record-timer">{t("recording.elapsed", { time: formatTime(elapsed) })}</span>
+        </div>
       )}
+
+      {/* Processing indicator with step labels */}
+      {status === "processing" && (
+        <div className="processing-status">
+          <span className="spinner spinner-dark" />
+          <span>
+            {processingStep === "transcribing"
+              ? t("recording.step_transcribing")
+              : t("recording.step_summarizing")}
+          </span>
+        </div>
+      )}
+
+      {/* Error alert */}
+      {error && (
+        <div className="alert alert-error" role="alert">
+          <span>⚠</span>
+          <span>{t("errors.alert", { message: error })}</span>
+        </div>
+      )}
+
+      {/* Transcript preview after done */}
       {meeting && status === "done" && (
-        <div aria-label={t("recording.aria_transcript")}>
-          <p>
-            {t("recording.meeting_id_label")} {meeting.id}
+        <div
+          aria-label={t("recording.aria_transcript")}
+          style={{
+            marginBottom: "1rem",
+            padding: "0.75rem 1rem",
+            background: "#f7fafc",
+            borderRadius: "var(--radius-md)",
+            border: "1px solid var(--color-border)",
+            fontSize: "0.9rem",
+          }}
+        >
+          <p style={{ marginBottom: "0.25rem" }}>
+            <strong>{t("recording.meeting_title_label")}</strong> {meeting.title}
           </p>
-          <p>
-            {t("recording.transcript_preview_label")} {transcriptPreview}
-          </p>
-          <p>
-            {t("recording.meeting_title_label")} {meeting.title}
+          <p style={{ color: "var(--color-text-muted)", whiteSpace: "pre-wrap" }}>
+            {transcriptPreview}
           </p>
         </div>
       )}
+
+      {/* Primary action button */}
       <button
         type="button"
+        className={buttonClass}
         onClick={onPrimaryClick}
         disabled={status === "processing"}
+        style={{ marginTop: "0.5rem" }}
       >
-        {buttonLabel}
+        {status === "processing" ? null : buttonLabel}
       </button>
     </div>
   );

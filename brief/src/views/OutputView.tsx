@@ -37,12 +37,20 @@ interface OutputViewProps {
 export function OutputView({ meeting, onBack }: OutputViewProps) {
   const { t } = useTranslation();
   const [exportBusy, setExportBusy] = useState<"markdown" | "pdf" | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
   const output = meeting.output;
   const followUp = output.follow_up_draft;
   const followUpText =
     followUp && typeof followUp.full_text === "string"
       ? followUp.full_text.trim()
       : "";
+
+  const showExportError = (e: unknown) => {
+    setExportError(String(e));
+    setTimeout(() => setExportError(null), 5000);
+  };
 
   const exportMarkdown = async () => {
     setExportBusy("markdown");
@@ -59,7 +67,7 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
         await writeFile(path, new TextEncoder().encode(markdown));
       }
     } catch (e) {
-      window.alert(t("errors.alert", { message: String(e) }));
+      showExportError(e);
     } finally {
       setExportBusy(null);
     }
@@ -79,88 +87,101 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
         await writeFile(path, bytes);
       }
     } catch (e) {
-      window.alert(t("errors.alert", { message: String(e) }));
+      showExportError(e);
     } finally {
       setExportBusy(null);
     }
   };
 
+  const copyEmail = () => {
+    void navigator.clipboard.writeText(followUpText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div className="output-view" style={{ maxWidth: "52rem" }}>
       <div className="output-header" style={{ marginBottom: "1.5rem" }}>
-        <button type="button" onClick={onBack}>
-          {t("output.back")}
+        <button type="button" className="btn btn-ghost btn-icon" onClick={onBack}>
+          ← {t("output.back")}
         </button>
-        <h1 style={{ marginTop: "0.75rem", marginBottom: "0.25rem" }}>
+        <h1 style={{ marginTop: "0.75rem", marginBottom: "0.25rem", fontSize: "1.3rem", fontWeight: 700 }}>
           {meeting.title}
         </h1>
-        <span className="meeting-type" style={{ color: "#525252" }}>
+        <span style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
           {t(`meeting_types.${meeting.meeting_type}`)}
         </span>
+
+        {exportError && (
+          <div className="alert alert-error" style={{ marginTop: "0.75rem" }}>
+            <span>⚠</span>
+            <span>{t("errors.alert", { message: exportError })}</span>
+          </div>
+        )}
+
         <div
           className="export-buttons"
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "0.5rem",
-            marginTop: "1rem",
-          }}
+          style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "1rem" }}
         >
           <button
             type="button"
+            className="btn btn-ghost btn-icon"
             disabled={exportBusy !== null}
-            onClick={() => {
-              void exportMarkdown();
-            }}
+            onClick={() => { void exportMarkdown(); }}
           >
-            {t("output.export_markdown")}
+            {exportBusy === "markdown" ? (
+              <><span className="spinner spinner-dark" />{t("output.exporting")}</>
+            ) : (
+              t("output.export_markdown")
+            )}
           </button>
           <button
             type="button"
+            className="btn btn-ghost btn-icon"
             disabled={exportBusy !== null}
-            onClick={() => {
-              void exportPdf();
-            }}
+            onClick={() => { void exportPdf(); }}
           >
-            {t("output.export_pdf")}
+            {exportBusy === "pdf" ? (
+              <><span className="spinner spinner-dark" />{t("output.exporting")}</>
+            ) : (
+              t("output.export_pdf")
+            )}
           </button>
         </div>
       </div>
 
-      <section className="output-section" style={{ marginBottom: "1.5rem" }}>
-        <h2 style={{ fontSize: "1.125rem" }}>{t("output.summary")}</h2>
-        <p style={{ marginTop: "0.5rem", whiteSpace: "pre-wrap" }}>
+      <section className="output-section">
+        <h2>{t("output.summary")}</h2>
+        <p style={{ marginTop: "0.5rem", whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
           {output.summary_short}
         </p>
       </section>
 
       {output.topics.length > 0 && (
-        <section className="output-section" style={{ marginBottom: "1.5rem" }}>
-          <h2 style={{ fontSize: "1.125rem" }}>{t("output.topics")}</h2>
+        <section className="output-section">
+          <h2>{t("output.topics")}</h2>
           {output.topics.map((topic: Topic, i: number) => (
-            <div
-              key={i}
-              className="topic-item"
-              style={{ marginTop: "0.75rem" }}
-            >
-              <h3 style={{ fontSize: "1rem", marginBottom: "0.25rem" }}>
+            <div key={i} style={{ marginTop: "0.75rem" }}>
+              <h3 style={{ fontSize: "0.95rem", fontWeight: 600, marginBottom: "0.25rem" }}>
                 {topic.title}
               </h3>
-              <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>{topic.summary}</p>
+              <p style={{ margin: 0, whiteSpace: "pre-wrap", color: "var(--color-text-muted)", lineHeight: 1.55 }}>
+                {topic.summary}
+              </p>
             </div>
           ))}
         </section>
       )}
 
       {output.decisions.length > 0 && (
-        <section className="output-section" style={{ marginBottom: "1.5rem" }}>
-          <h2 style={{ fontSize: "1.125rem" }}>{t("output.decisions")}</h2>
+        <section className="output-section">
+          <h2>{t("output.decisions")}</h2>
           <ul style={{ paddingLeft: "1.25rem", marginTop: "0.5rem" }}>
             {output.decisions.map((d: Decision, i: number) => (
-              <li key={i} style={{ marginBottom: "0.5rem" }}>
+              <li key={i} style={{ marginBottom: "0.5rem", lineHeight: 1.55 }}>
                 <strong>{d.description}</strong>
                 {d.context && (
-                  <p className="context" style={{ margin: "0.25rem 0 0", color: "#525252" }}>
+                  <p style={{ margin: "0.25rem 0 0", color: "var(--color-text-muted)", fontSize: "0.9rem" }}>
                     {d.context}
                   </p>
                 )}
@@ -171,26 +192,14 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
       )}
 
       {output.action_items.length > 0 && (
-        <section className="output-section" style={{ marginBottom: "1.5rem" }}>
-          <h2 style={{ fontSize: "1.125rem" }}>{t("output.action_items")}</h2>
+        <section className="output-section">
+          <h2>{t("output.action_items")}</h2>
           {output.action_items.map((item: ActionItem, i: number) => (
-            <div
-              key={i}
-              className={`action-item priority-${item.priority ?? "none"}`}
-              style={{
-                marginTop: "0.75rem",
-                padding: "0.75rem",
-                border: "1px solid #e5e5e5",
-                borderRadius: "6px",
-              }}
-            >
-              <p style={{ margin: "0 0 0.5rem", whiteSpace: "pre-wrap" }}>
+            <div key={i} className="action-item" style={{ marginTop: "0.75rem" }}>
+              <p style={{ margin: "0 0 0.5rem", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
                 {item.description}
               </p>
-              <div
-                className="action-meta"
-                style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", fontSize: "0.875rem" }}
-              >
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.75rem", fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
                 {item.owner && (
                   <span>{t("output.action_owner", { owner: item.owner })}</span>
                 )}
@@ -201,8 +210,8 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
                   <span
                     className={`priority-badge ${item.priority}`}
                     style={{
-                      padding: "0.125rem 0.5rem",
-                      borderRadius: "4px",
+                      padding: "0.1rem 0.5rem",
+                      borderRadius: "var(--radius-sm)",
                       border: "1px solid",
                       fontWeight: 600,
                       ...PRIORITY_BADGE_STYLE[item.priority],
@@ -218,56 +227,35 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
       )}
 
       {followUpText.length > 0 && (
-        <section className="output-section" style={{ marginBottom: "1.5rem" }}>
-          <h2 style={{ fontSize: "1.125rem" }}>{t("output.follow_up_draft")}</h2>
-          <div className="follow-up-preview" style={{ marginTop: "0.5rem" }}>
+        <section className="output-section">
+          <h2>{t("output.follow_up_draft")}</h2>
+          <div style={{ marginTop: "0.5rem" }}>
             {followUp.subject && (
-              <p style={{ marginTop: 0 }}>
+              <p style={{ marginBottom: "0.5rem" }}>
                 <strong>{t("output.subject")}:</strong> {followUp.subject}
               </p>
             )}
-            <pre
-              className="email-body"
-              style={{
-                whiteSpace: "pre-wrap",
-                padding: "0.75rem",
-                background: "#fafafa",
-                borderRadius: "6px",
-                border: "1px solid #e5e5e5",
-                fontFamily: "inherit",
-                fontSize: "0.875rem",
-              }}
-            >
+            <pre className="email-body" style={{ fontFamily: "inherit" }}>
               {followUpText}
             </pre>
           </div>
           <button
             type="button"
+            className="btn btn-ghost btn-icon"
             style={{ marginTop: "0.75rem" }}
-            onClick={() => {
-              void navigator.clipboard.writeText(followUpText);
-            }}
+            onClick={copyEmail}
           >
-            {t("output.copy_email")}
+            {copied ? t("output.copied") : t("output.copy_email")}
           </button>
         </section>
       )}
 
-      <section className="output-section" style={{ marginBottom: "1.5rem" }}>
+      <section className="output-section">
         <details>
-          <summary style={{ cursor: "pointer" }}>{t("output.transcript")}</summary>
-          <pre
-            className="transcript"
-            style={{
-              whiteSpace: "pre-wrap",
-              marginTop: "0.5rem",
-              padding: "0.75rem",
-              background: "#fafafa",
-              borderRadius: "6px",
-              maxHeight: "24rem",
-              overflow: "auto",
-            }}
-          >
+          <summary style={{ cursor: "pointer", userSelect: "none", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--color-text-subtle)", fontWeight: 600 }}>
+            {t("output.transcript")}
+          </summary>
+          <pre className="transcript" style={{ marginTop: "0.5rem", fontFamily: "inherit" }}>
             {meeting.transcript}
           </pre>
         </details>
@@ -275,8 +263,9 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
 
       {output.participants_mentioned.length > 0 && (
         <section className="output-section">
-          <p style={{ margin: 0 }}>
-            {t("output.participants")}: {output.participants_mentioned.join(", ")}
+          <h2>{t("output.participants")}</h2>
+          <p style={{ marginTop: "0.25rem" }}>
+            {output.participants_mentioned.join(", ")}
           </p>
         </section>
       )}

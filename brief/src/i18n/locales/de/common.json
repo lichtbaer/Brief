@@ -19,6 +19,7 @@
     "custom": "Benutzerdefiniert"
   },
   "recording": {
+    "title": "Neue Aufnahme",
     "smoke_test_heading": "Brief — Phase 1 Smoke Test",
     "meeting_id_label": "Meeting-ID:",
     "transcript_preview_label": "Transkript-Preview:",
@@ -34,7 +35,10 @@
     "btn_start": "Aufnahme starten",
     "btn_stop": "Stoppen & Verarbeiten",
     "btn_restart": "Neu starten",
-    "meeting_type_label": "Meeting-Typ"
+    "meeting_type_label": "Meeting-Typ",
+    "step_transcribing": "Transkribiere Audio…",
+    "step_summarizing": "Erstelle Zusammenfassung…",
+    "elapsed": "{{time}} aufgezeichnet"
   },
   "errors": {
     "whisperx_unavailable": "WhisperX ist nicht verfügbar. Bitte Python-Umgebung einrichten: cd whisperx_runner && bash setup.sh",
@@ -47,6 +51,7 @@
     "search_placeholder": "Meetings durchsuchen…",
     "loading": "Lade Meetings…",
     "empty": "Noch keine Meetings gespeichert.",
+    "empty_state": "Noch keine Aufnahmen. Starte deine erste Aufnahme!",
     "action_items_count": "{{count}} Action Items"
   },
   "output": {
@@ -58,6 +63,8 @@
     "follow_up_draft": "Follow-up E-Mail",
     "subject": "Betreff",
     "copy_email": "E-Mail kopieren",
+    "copied": "✓ Kopiert!",
+    "exporting": "Exportiere…",
     "transcript": "Vollständiges Transkript",
     "participants": "Teilnehmer",
     "empty": "Noch keine Ausgabe — bitte zuerst eine Aufnahme verarbeiten.",

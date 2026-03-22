@@ -66,6 +66,7 @@ export default function App() {
   if (onboardingComplete === null) {
     return (
       <div className="app-loading" role="status" aria-live="polite">
+        <span className="spinner spinner-dark" />
         {t("onboarding.loading_app")}
       </div>
     );
@@ -122,19 +123,21 @@ export default function App() {
             onDismissed={handleLowRamDismissed}
           />
         )}
-        {currentView === "recording" && (
-          <RecordingView onMeetingDone={handleMeetingDone} />
-        )}
-        {currentView === "output" && currentMeeting && (
-          <OutputView
-            meeting={currentMeeting}
-            onBack={handleOutputBack}
-          />
-        )}
-        {currentView === "history" && (
-          <HistoryView onOpenMeeting={handleOpenMeeting} />
-        )}
-        {currentView === "settings" && <SettingsView />}
+        <div key={currentView} className="view-enter">
+          {currentView === "recording" && (
+            <RecordingView onMeetingDone={handleMeetingDone} />
+          )}
+          {currentView === "output" && currentMeeting && (
+            <OutputView
+              meeting={currentMeeting}
+              onBack={handleOutputBack}
+            />
+          )}
+          {currentView === "history" && (
+            <HistoryView onOpenMeeting={handleOpenMeeting} />
+          )}
+          {currentView === "settings" && <SettingsView />}
+        </div>
       </main>
     </div>
   );
