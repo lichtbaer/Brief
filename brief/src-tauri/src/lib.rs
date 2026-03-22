@@ -5,6 +5,8 @@ mod transcribe;
 use audio::AudioRecorder;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use tauri::State;
+use transcribe::Transcriber;
 
 pub struct AppState {
     pub recordings: Mutex<HashMap<String, AudioRecorder>>,
@@ -48,9 +50,36 @@ async fn stop_recording(
 }
 
 #[tauri::command]
-async fn process_meeting(session_id: String, audio_path: String) -> Result<String, String> {
-    let _ = (session_id, audio_path);
-    Ok("{}".to_string())
+async fn process_meeting(
+    session_id: String,
+    audio_path: String,
+    _state: State<'_, AppState>,
+) -> Result<String, String> {
+    let transcriber = Transcriber::new(None, None);
+
+    if !transcriber.check_available() {
+        return Err(
+            "WhisperX ist nicht verfügbar. Bitte stelle sicher dass die Python-Umgebung korrekt eingerichtet ist."
+                .to_string(),
+        );
+    }
+
+    let audio_path_buf = std::path::PathBuf::from(&audio_path);
+
+    let transcriber_clone = transcriber;
+    let result = tokio::task::spawn_blocking(move || transcriber_clone.transcribe(&audio_path_buf))
+        .await
+        .map_err(|e| format!("Task-Fehler: {}", e))??;
+
+    std::fs::remove_file(&audio_path).ok();
+
+    Ok(serde_json::json!({
+        "session_id": session_id,
+        "segments": result.segments,
+        "language": result.language,
+        "status": "transcribed"
+    })
+    .to_string())
 }
 
 #[tauri::command]
