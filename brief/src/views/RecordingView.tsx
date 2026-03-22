@@ -27,6 +27,8 @@ export function RecordingView() {
       const result = await invoke<string>("process_meeting", {
         session_id: sid,
         audio_path: audioPath,
+        meeting_type: meetingType,
+        title: null,
       });
       const data = JSON.parse(result) as { segments: Segment[] };
       setSegments(data.segments);
