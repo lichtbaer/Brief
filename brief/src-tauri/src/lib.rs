@@ -11,14 +11,17 @@ mod types;
 use audio::AudioRecorder;
 use base64::Engine as _;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use storage::Storage;
 use tauri::Manager;
+use tauri_plugin_dialog::DialogExt;
 use types::AppSettingsSnapshot;
 
 pub struct AppState {
     pub recordings: Mutex<HashMap<String, AudioRecorder>>,
     pub storage: tokio::sync::Mutex<Storage>,
+    pub app_data_dir: PathBuf,
 }
 
 #[tauri::command]
@@ -131,7 +134,16 @@ async fn process_meeting(
         );
     }
 
-    let meeting = crate::types::Meeting {
+    let retain = {
+        let storage = state.storage.lock().await;
+        storage
+            .get_setting("retain_audio")
+            .await?
+            .unwrap_or_else(|| "false".to_string())
+            == "true"
+    };
+
+    let mut meeting = crate::types::Meeting {
         id: session_id.clone(),
         created_at: now.clone(),
         ended_at: now,
@@ -144,14 +156,30 @@ async fn process_meeting(
         tags: vec![],
     };
 
+    if retain {
+        let audio_dir = state.app_data_dir.join("audio");
+        std::fs::create_dir_all(&audio_dir)
+            .map_err(|e| format!("Audio-Ordner konnte nicht angelegt werden: {}", e))?;
+        let dest = audio_dir.join(format!("{session_id}.wav"));
+        std::fs::rename(&audio_path_buf, &dest)
+            .map_err(|e| format!("Audio verschieben fehlgeschlagen: {}", e))?;
+        meeting.audio_path = Some(
+            dest.to_str()
+                .ok_or_else(|| "Ungültiger Audiopfad".to_string())?
+                .to_string(),
+        );
+    }
+
     {
         let storage = state.storage.lock().await;
         storage.save_meeting(&meeting).await?;
     }
 
-    if let Err(e) = std::fs::remove_file(&audio_path) {
-        if e.kind() != std::io::ErrorKind::NotFound {
-            return Err(e.to_string());
+    if !retain {
+        if let Err(e) = std::fs::remove_file(&audio_path_buf) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                return Err(e.to_string());
+            }
         }
     }
 
@@ -290,6 +318,112 @@ async fn check_ollama() -> Result<serde_json::Value, String> {
     }))
 }
 
+/// Returns the on-disk path for stored meeting audio, or an error if none / missing file.
+#[tauri::command]
+async fn get_audio_path(id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let storage = state.storage.lock().await;
+    let meeting_json = storage
+        .get_meeting(&id)
+        .await?
+        .ok_or_else(|| format!("Meeting {} nicht gefunden", id))?;
+    let meeting: serde_json::Value =
+        serde_json::from_str(&meeting_json).map_err(|e| e.to_string())?;
+    let Some(audio_path) = meeting["audio_path"].as_str() else {
+        return Err("Kein gespeichertes Audio für dieses Meeting".to_string());
+    };
+    let p = std::path::Path::new(audio_path);
+    if !p.is_file() {
+        return Err("Audiodatei nicht gefunden".to_string());
+    }
+    Ok(audio_path.to_string())
+}
+
+/// Opens a save dialog and copies the meeting WAV to the chosen location.
+#[tauri::command]
+async fn export_audio(
+    id: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let (src, default_name) = {
+        let storage = state.storage.lock().await;
+        let meeting_json = storage
+            .get_meeting(&id)
+            .await?
+            .ok_or_else(|| format!("Meeting {} nicht gefunden", id))?;
+        let meeting: serde_json::Value =
+            serde_json::from_str(&meeting_json).map_err(|e| e.to_string())?;
+        let audio_path = meeting["audio_path"].as_str().ok_or_else(|| {
+            "Kein gespeichertes Audio für dieses Meeting".to_string()
+        })?;
+        let title = meeting["title"]
+            .as_str()
+            .unwrap_or("meeting")
+            .to_string();
+        Ok::<_, String>((
+            PathBuf::from(audio_path),
+            format!("{}.wav", safe_export_stem(title)),
+        ))
+    }?;
+
+    if !src.is_file() {
+        return Err("Audiodatei nicht gefunden".to_string());
+    }
+
+    let Some(dest_fp) = app
+        .dialog()
+        .file()
+        .add_filter("WAV", &["wav"])
+        .set_file_name(&default_name)
+        .blocking_save_file()
+    else {
+        return Err("cancelled".to_string());
+    };
+
+    let dest_pb = dest_fp.into_path().map_err(|e| e.to_string())?;
+
+    std::fs::copy(&src, &dest_pb).map_err(|e| format!("Audio exportieren fehlgeschlagen: {}", e))?;
+
+    dest_pb
+        .to_str()
+        .map(std::string::ToString::to_string)
+        .ok_or_else(|| "Ungültiger Zielpfad".to_string())
+}
+
+fn safe_export_stem(title: String) -> String {
+    let trimmed: String = title
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | '?' | '%' | '*' | ':' | '|' | '"' | '<' | '>' => '-',
+            c => c,
+        })
+        .collect();
+    let t = trimmed.trim();
+    if t.is_empty() {
+        "meeting".to_string()
+    } else {
+        t.chars().take(80).collect()
+    }
+}
+
+#[tauri::command]
+async fn get_retain_audio(state: tauri::State<'_, AppState>) -> Result<bool, String> {
+    let storage = state.storage.lock().await;
+    let v = storage
+        .get_setting("retain_audio")
+        .await?
+        .unwrap_or_else(|| "false".to_string());
+    Ok(v == "true")
+}
+
+#[tauri::command]
+async fn set_retain_audio(value: bool, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    let storage = state.storage.lock().await;
+    storage
+        .set_setting("retain_audio", if value { "true" } else { "false" })
+        .await
+}
+
 /// Update a single setting (persists immediately).
 #[tauri::command]
 async fn update_setting(
@@ -346,6 +480,7 @@ pub fn run() {
             app.manage(AppState {
                 recordings: Mutex::new(HashMap::new()),
                 storage: tokio::sync::Mutex::new(storage),
+                app_data_dir: app_data.clone(),
             });
 
             Ok(())
@@ -363,6 +498,10 @@ pub fn run() {
             set_llm_model,
             dismiss_low_ram_onboarding,
             get_all_settings,
+            get_audio_path,
+            export_audio,
+            get_retain_audio,
+            set_retain_audio,
             update_setting,
             check_whisperx,
             check_ollama

@@ -71,7 +71,10 @@
     "action_owner": "👤 {{owner}}",
     "action_due": "📅 {{date}}",
     "speaker_label": "{{speaker}}:",
+    "audio_recording": "Recording",
     "audio_not_saved": "Audio not saved (enable opt-in in Settings)",
+    "export_audio": "Export audio (WAV)",
+    "export_audio_success": "Audio exported to: {{path}}",
     "export_markdown": "Export as Markdown",
     "export_pdf": "Export as PDF"
   },
