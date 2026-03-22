@@ -7,6 +7,7 @@ type AppStatus = "idle" | "recording" | "processing" | "done" | "error";
 type ProcessingStep = "transcribing" | "summarizing";
 
 interface RecordingViewProps {
+  /** Called after a successful `process_meeting` when the parent should take over navigation (e.g. show output). */
   onMeetingDone?: (meeting: Meeting) => void;
 }
 
@@ -16,6 +17,12 @@ function formatTime(seconds: number): string {
   return `${m}:${s}`;
 }
 
+/**
+ * Main recording flow: idle → recording → WhisperX/Ollama processing → done or error.
+ * Invokes Tauri `start_recording`, `stop_recording`, and `process_meeting`; shows timers and transcript preview when inline.
+ *
+ * @param props.onMeetingDone — optional callback when processing finishes (parent-owned navigation).
+ */
 export function RecordingView({ onMeetingDone }: RecordingViewProps) {
   const { t } = useTranslation();
   const [sessionId, setSessionId] = useState<string | null>(null);

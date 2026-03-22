@@ -1,3 +1,7 @@
+//! WhisperX subprocess integration: spawn Python runner, parse JSON segments, enforce timeout.
+//!
+//! The Rust side avoids embedding ML; it delegates to `whisperx_runner/whisperx_runner.py` and maps stdout to [`WhisperXOutput`].
+
 use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -10,6 +14,7 @@ pub const TRANSCRIPTION_TIMEOUT_ERROR: &str = "BRIEF_ERR_TRANSCRIPTION_TIMEOUT";
 
 pub const DEFAULT_WHISPERX_TIMEOUT_SECS: u64 = 900;
 
+/// One timed utterance with a diarized speaker label and transcript text.
 #[derive(Deserialize, Serialize, Clone)]
 pub struct DiarizedSegment {
     pub speaker: String,
@@ -18,6 +23,7 @@ pub struct DiarizedSegment {
     pub text: String,
 }
 
+/// Successful JSON payload from the WhisperX runner (`segments` + detected `language`).
 #[derive(Deserialize)]
 pub struct WhisperXOutput {
     pub segments: Vec<DiarizedSegment>,
@@ -30,6 +36,7 @@ struct WhisperXError {
     error: String,
 }
 
+/// Configuration for running the external WhisperX Python script (`python`, script path, model, language, timeout).
 pub struct Transcriber {
     pub python_bin: String,
     pub runner_script: String,
@@ -82,6 +89,7 @@ fn default_python_bin_for_runner(runner_script: &str) -> String {
 }
 
 impl Transcriber {
+    /// Builds a transcriber: resolves runner path (`BRIEF_WHISPERX_RUNNER` or dev path next to crate), prefers `.venv` Python when present.
     pub fn new(python_bin: Option<String>, runner_script: Option<String>) -> Self {
         let runner_script = runner_script.unwrap_or_else(default_runner_script);
         let python_bin = python_bin.unwrap_or_else(|| default_python_bin_for_runner(&runner_script));
@@ -94,11 +102,13 @@ impl Transcriber {
         }
     }
 
+    /// Sets the maximum wall-clock wait for the WhisperX child process (`secs` clamped to at least 1).
     pub fn with_timeout_secs(mut self, secs: u64) -> Self {
         self.timeout_secs = secs.max(1);
         self
     }
 
+    /// Runs the WhisperX subprocess on `audio_path`, reads stdout as JSON, and returns segments or a stable timeout token ([`TRANSCRIPTION_TIMEOUT_ERROR`]).
     pub fn transcribe(&self, audio_path: &Path) -> Result<WhisperXOutput, String> {
         let audio_str = audio_path.to_str().ok_or_else(|| {
             "Audio-Pfad ist nicht als UTF-8 darstellbar".to_string()
@@ -196,6 +206,7 @@ impl Transcriber {
         }
     }
 
+    /// Returns whether `python -c "import whisperx"` succeeds with the configured interpreter (quick env sanity check).
     pub fn check_available(&self) -> bool {
         Command::new(&self.python_bin)
             .arg("-c")
