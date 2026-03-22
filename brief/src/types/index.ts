@@ -1,5 +1,14 @@
 export type MeetingType = "consulting" | "legal" | "internal" | "custom";
 
+/** Mirrors `AppSettingsSnapshot` from the Tauri backend. */
+export interface AppSettingsSnapshot {
+  memoryGb: number;
+  recommendedModel: string;
+  llmModel: string;
+  llmModelUserOverride: boolean;
+  showLowRamOnboarding: boolean;
+}
+
 export interface ActionItem {
   description: string;
   owner: string | null;

@@ -75,13 +75,71 @@ impl Storage {
                 ('llm_model', 'llama3.1:8b', datetime('now')),
                 ('default_meeting_type', 'consulting', datetime('now')),
                 ('audio_device', 'default', datetime('now')),
-                ('retention_days', '365', datetime('now'))",
+                ('retention_days', '365', datetime('now')),
+                ('llm_model_user_override', '0', datetime('now')),
+                ('low_ram_onboarding_dismissed', '0', datetime('now'))",
         )
         .execute(&self.pool)
         .await
         .map_err(|e| format!("Default-Settings fehlgeschlagen: {}", e))?;
 
         Ok(())
+    }
+
+    pub async fn get_setting(&self, key: &str) -> Result<Option<String>, String> {
+        let row = sqlx::query("SELECT value FROM settings WHERE key = ?")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| format!("Setting lesen fehlgeschlagen: {}", e))?;
+        Ok(row.map(|r| r.get::<String, _>("value")))
+    }
+
+    pub async fn set_setting(&self, key: &str, value: &str) -> Result<(), String> {
+        sqlx::query(
+            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Setting speichern fehlgeschlagen: {}", e))?;
+        Ok(())
+    }
+
+    /// Applies RAM-based default for `llm_model` unless the user chose a manual override.
+    pub async fn apply_recommended_llm_if_not_overridden(
+        &self,
+        recommended: &str,
+    ) -> Result<(), String> {
+        let user_override = self
+            .get_setting("llm_model_user_override")
+            .await?
+            .unwrap_or_else(|| "0".to_string());
+        if user_override == "1" {
+            return Ok(());
+        }
+        sqlx::query(
+            "UPDATE settings SET value = ?, updated_at = datetime('now') WHERE key = 'llm_model'",
+        )
+        .bind(recommended)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("llm_model aktualisieren fehlgeschlagen: {}", e))?;
+        Ok(())
+    }
+
+    pub async fn get_summarizer_config(&self) -> Result<(String, String), String> {
+        let url = self
+            .get_setting("ollama_url")
+            .await?
+            .unwrap_or_else(|| "http://localhost:11434".to_string());
+        let model = self
+            .get_setting("llm_model")
+            .await?
+            .unwrap_or_else(|| "llama3.1:8b".to_string());
+        Ok((url, model))
     }
 
     pub async fn save_meeting(&self, meeting: &Meeting) -> Result<(), String> {

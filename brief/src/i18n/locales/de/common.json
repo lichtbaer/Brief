@@ -48,6 +48,21 @@
   },
   "settings": {
     "retain_audio_label": "Audio nach Transkription behalten (Opt-in)",
-    "retain_audio_description": "Standard: Audio wird nach Transkription gelöscht. Wenn aktiviert, wird die Aufnahme verschlüsselt im App-Ordner gespeichert."
+    "retain_audio_description": "Standard: Audio wird nach Transkription gelöscht. Wenn aktiviert, wird die Aufnahme verschlüsselt im App-Ordner gespeichert.",
+    "memory_detected": "Erkanntes Arbeitsspeicher: ca. {{gb}} GB",
+    "llm_model_label": "Ollama-LLM-Modell",
+    "llm_model_save": "Modell speichern",
+    "llm_model_saved": "Gespeichert.",
+    "llm_model_save_error": "Speichern fehlgeschlagen.",
+    "llm_model_override_hint": "Manuelle Auswahl aktiv — automatische RAM-Empfehlung wird nicht mehr angewendet.",
+    "loading": "Einstellungen werden geladen…"
+  },
+  "onboarding": {
+    "low_ram": {
+      "title": "Wenig Arbeitsspeicher (8 GB)",
+      "body": "Brief empfiehlt ein kleineres Ollama-Modell für flüssige Performance. Es ist etwas weniger präzise bei komplexen Aufgaben, läuft aber zuverlässig auf diesem Gerät. Bitte das Modell manuell herunterladen:",
+      "recommended_label": "Empfohlenes Modell:",
+      "dismiss": "Hinweis schließen"
+    }
   }
 }

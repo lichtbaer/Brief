@@ -2,6 +2,17 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Settings + memory snapshot for the React shell (onboarding, settings screen).
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettingsSnapshot {
+    pub memory_gb: f64,
+    pub recommended_model: String,
+    pub llm_model: String,
+    pub llm_model_user_override: bool,
+    pub show_low_ram_onboarding: bool,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Meeting {
     pub id: String,

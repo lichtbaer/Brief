@@ -18,7 +18,7 @@ Microphone → CPAL (Rust) → WAV file (temp)
     → whisperx_runner.py (Python subprocess)
     → JSON segments {speaker, start, end, text}
     → process_meeting Tauri command
-    → Ollama llama3.1:8b (summarization, BRIEF-004)
+    → Ollama (default `llama3.1:8b`; on ≤8 GB RAM auto `llama3.2:3b` unless overridden — SMA-367)
     → MeetingOutput (stored in SQLCipher DB)
 ```
 
@@ -30,6 +30,15 @@ Microphone → CPAL (Rust) → WAV file (temp)
 | `stop_recording` | `session_id: String` | `audio_path: String` | ✅ BRIEF-002 |
 | `process_meeting` | `session_id, audio_path` | JSON with segments | ✅ BRIEF-003 |
 | `get_meeting` | `id: String` | Meeting JSON | ✅ BRIEF-004 |
+| `get_app_settings_snapshot` | — | `AppSettingsSnapshot` (memory, LLM, onboarding flags) | ✅ SMA-367 |
+| `set_llm_model` | `model: String` | — | ✅ SMA-367 |
+| `dismiss_low_ram_onboarding` | — | — | ✅ SMA-367 |
+
+## LLM models (8 GB / MacBook-class hardware)
+
+At startup, Brief reads installed RAM (`sysctl hw.memsize` on macOS, `/proc/meminfo` on Linux for dev/CI) and, unless the user has set a manual override, writes the recommended Ollama model id into `settings.llm_model` (`llama3.2:3b` when RAM ≤ 8 GB, otherwise `llama3.1:8b`). Users still run `ollama pull …` themselves.
+
+**Template quality (llama3.2:3b):** Smoke-tested with the same JSON-output templates as `llama3.1:8b`; expect slightly lower precision on long or ambiguous transcripts. Re-run meeting-specific template QA if prompts change (BRIEF-P2-002).
 
 ## Local Setup
 
