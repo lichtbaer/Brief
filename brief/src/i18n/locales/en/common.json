@@ -16,7 +16,8 @@
   "meeting_types": {
     "consulting": "Advisory meeting",
     "legal": "Client meeting (law firm)",
-    "internal": "Internal meeting"
+    "internal": "Internal meeting",
+    "custom": "Custom"
   },
   "recording": {
     "smoke_test_heading": "Brief — Phase 1 Smoke Test",
@@ -43,6 +44,19 @@
     "alert": "Error: {{message}}"
   },
   "output": {
+    "back": "Back",
+    "summary": "Summary",
+    "topics": "Topics discussed",
+    "decisions": "Decisions",
+    "action_items": "Action items",
+    "follow_up_draft": "Follow-up email",
+    "subject": "Subject",
+    "copy_email": "Copy email",
+    "transcript": "Full transcript",
+    "participants": "Participants",
+    "empty": "No output yet — process a recording first.",
+    "action_owner": "👤 {{owner}}",
+    "action_due": "📅 {{date}}",
     "speaker_label": "{{speaker}}:",
     "audio_not_saved": "Audio not saved (enable opt-in in Settings)"
   },
