@@ -2,6 +2,18 @@
 
 Tauri 2 + React + TypeScript.
 
+## Voraussetzungen
+
+- Rust (stable)
+- Node.js 20+
+- Ollama (https://ollama.ai) mit `whisper` und `llama3.1:8b` Modellen
+- **SQLCipher** (native Bibliothek; wird für die verschlüsselte SQLite-DB gebunden):
+  - macOS: `brew install sqlcipher`
+  - Debian/Ubuntu: `libsqlcipher-dev` (oder System-SQLCipher mit passenden `pkg-config`-Pfaden)
+  - Windows: [SQLCipher Windows Build](https://github.com/sqlcipher/sqlcipher)
+
+Das Release nutzt `libsqlite3-sys` mit Feature `bundled-sqlcipher`, sodass SQLCipher mitgebaut werden kann, sofern die Build-Umgebung (z. B. OpenSSL-Entwicklerpakete) passt.
+
 ## WhisperX Setup (Entwicklung)
 
 Transkription und Speaker-Diarization laufen über WhisperX (Python). Einrichtung:

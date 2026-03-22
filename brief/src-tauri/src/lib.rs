@@ -1,13 +1,18 @@
 mod audio;
+mod crypto_key;
 mod storage;
 mod transcribe;
+mod types;
 
 use audio::AudioRecorder;
 use std::collections::HashMap;
 use std::sync::Mutex;
+use storage::Storage;
+use tauri::Manager;
 
 pub struct AppState {
     pub recordings: Mutex<HashMap<String, AudioRecorder>>,
+    pub storage: tokio::sync::Mutex<Storage>,
 }
 
 #[tauri::command]
@@ -51,7 +56,9 @@ async fn stop_recording(
 async fn process_meeting(
     session_id: String,
     audio_path: String,
-    _state: tauri::State<'_, AppState>,
+    meeting_type: String,
+    title: Option<String>,
+    state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
     let transcriber = transcribe::Transcriber::new(None, None);
 
@@ -68,28 +75,71 @@ async fn process_meeting(
         .await
         .map_err(|e| format!("Task-Fehler: {}", e))??;
 
+    let meeting = storage::meeting_from_transcription(
+        session_id.clone(),
+        meeting_type,
+        title.unwrap_or_else(|| "Meeting".to_string()),
+        None,
+        &result.segments,
+        &result.language,
+    );
+
+    {
+        let storage = state.storage.lock().await;
+        storage.save_meeting(&meeting).await?;
+    }
+
     std::fs::remove_file(&audio_path).ok();
 
     Ok(serde_json::json!({
         "session_id": session_id,
         "segments": result.segments,
         "language": result.language,
-        "status": "transcribed"
+        "status": "transcribed",
+        "meeting_id": meeting.id,
     })
     .to_string())
 }
 
 #[tauri::command]
-async fn get_meeting(id: String) -> Result<String, String> {
-    let _ = id;
-    Ok("{}".to_string())
+async fn get_meeting(id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let storage = state.storage.lock().await;
+    storage
+        .get_meeting(&id)
+        .await?
+        .ok_or_else(|| format!("Meeting {} nicht gefunden", id))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(AppState {
-            recordings: Mutex::new(HashMap::new()),
+        .setup(|app| {
+            let resolver = app.path();
+            let app_data = resolver
+                .app_data_dir()
+                .map_err(|e| format!("App-Datenpfad: {}", e))?;
+            std::fs::create_dir_all(&app_data)
+                .map_err(|e| format!("App-Datenverzeichnis: {}", e))?;
+
+            let db_path = app_data.join("brief.db");
+            let key = crypto_key::get_or_create_encryption_key(&app_data)?;
+
+            let storage = tauri::async_runtime::block_on(async {
+                Storage::new(
+                    db_path
+                        .to_str()
+                        .ok_or_else(|| "DB-Pfad ungültig".to_string())?,
+                    &key,
+                )
+                .await
+            })?;
+
+            app.manage(AppState {
+                recordings: Mutex::new(HashMap::new()),
+                storage: tokio::sync::Mutex::new(storage),
+            });
+
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             start_recording,
