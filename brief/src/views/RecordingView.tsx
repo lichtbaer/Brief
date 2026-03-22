@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { Meeting } from "../types";
+import type { Meeting, MeetingType } from "../types";
 
 type AppStatus = "idle" | "recording" | "processing" | "done" | "error";
 
@@ -11,6 +11,7 @@ export function RecordingView() {
   const [status, setStatus] = useState<AppStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [meeting, setMeeting] = useState<Meeting | null>(null);
+  const [meetingType, setMeetingType] = useState<MeetingType>("consulting");
 
   const reset = () => {
     setError(null);
@@ -25,7 +26,7 @@ export function RecordingView() {
       const result = await invoke<string>("process_meeting", {
         session_id: sid,
         audio_path: audioPath,
-        meeting_type: "consulting",
+        meeting_type: meetingType,
       });
       const parsed = JSON.parse(result) as Meeting;
       setMeeting(parsed);
@@ -41,7 +42,7 @@ export function RecordingView() {
     setMeeting(null);
     try {
       const id = await invoke<string>("start_recording", {
-        meeting_type: "consulting",
+        meeting_type: meetingType,
       });
       setSessionId(id);
       setStatus("recording");
@@ -112,6 +113,28 @@ export function RecordingView() {
       }}
     >
       <h1>{t("recording.smoke_test_heading")}</h1>
+      {status === "idle" && (
+        <div style={{ marginBottom: "1rem" }}>
+          <label htmlFor="meeting-type-select" style={{ display: "block" }}>
+            {t("recording.meeting_type_label")}
+          </label>
+          <select
+            id="meeting-type-select"
+            value={meetingType}
+            onChange={(e) =>
+              setMeetingType(e.target.value as MeetingType)
+            }
+          >
+            <option value="consulting">
+              {t("meeting_types.consulting")}
+            </option>
+            <option value="legal">{t("meeting_types.legal")}</option>
+            <option value="internal">
+              {t("meeting_types.internal")}
+            </option>
+          </select>
+        </div>
+      )}
       <p>
         {t("recording.status_label_prefix")}
         <strong>{statusLabel[status]}</strong>

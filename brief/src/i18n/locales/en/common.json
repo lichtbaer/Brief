@@ -13,6 +13,11 @@
     "history": "History",
     "settings": "Settings"
   },
+  "meeting_types": {
+    "consulting": "Advisory meeting",
+    "legal": "Client meeting (law firm)",
+    "internal": "Internal meeting"
+  },
   "recording": {
     "smoke_test_heading": "Brief — Phase 1 Smoke Test",
     "meeting_id_label": "Meeting ID:",
@@ -28,7 +33,8 @@
     "status_error": "Error",
     "btn_start": "Start Recording",
     "btn_stop": "Stop & Process",
-    "btn_restart": "Start Over"
+    "btn_restart": "Start Over",
+    "meeting_type_label": "Meeting type"
   },
   "errors": {
     "whisperx_unavailable": "WhisperX is not available. Please set up the Python environment: cd whisperx_runner && bash setup.sh",
