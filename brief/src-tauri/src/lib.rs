@@ -165,6 +165,23 @@ async fn get_meeting(id: String, state: tauri::State<'_, AppState>) -> Result<St
         .ok_or_else(|| format!("Meeting {} nicht gefunden", id))
 }
 
+/// Returns all meetings (newest first) as JSON, without full transcripts.
+#[tauri::command]
+async fn list_meetings(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let storage = state.storage.lock().await;
+    storage.list_meetings().await
+}
+
+/// Full-text search across meeting titles and transcripts (FTS5).
+#[tauri::command]
+async fn search_meetings(
+    query: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let storage = state.storage.lock().await;
+    storage.search_meetings(&query).await
+}
+
 #[tauri::command]
 async fn get_app_settings_snapshot(
     state: tauri::State<'_, AppState>,
@@ -259,6 +276,8 @@ pub fn run() {
             stop_recording,
             process_meeting,
             get_meeting,
+            list_meetings,
+            search_meetings,
             get_app_settings_snapshot,
             set_llm_model,
             dismiss_low_ram_onboarding
