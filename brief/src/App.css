@@ -130,3 +130,145 @@ body {
   max-height: 400px;
   overflow-y: auto;
 }
+
+.app-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: #f5f5f5;
+  color: #4a5568;
+  font-size: 0.95rem;
+}
+
+.onboarding-app-shell {
+  min-height: 100vh;
+  background: linear-gradient(160deg, #1a1a2e 0%, #2d2d4e 45%, #f5f5f5 45%);
+  padding: 2rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.onboarding-wizard {
+  width: 100%;
+  max-width: 520px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  padding: 2rem 2rem 2.25rem;
+}
+
+.onboarding-step h1 {
+  font-size: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: #1a202c;
+}
+
+.onboarding-step h2 {
+  font-size: 1.2rem;
+  margin-bottom: 0.75rem;
+  color: #2d3748;
+}
+
+.onboarding-step p {
+  margin-bottom: 1rem;
+  line-height: 1.5;
+  color: #4a5568;
+  font-size: 0.95rem;
+}
+
+.onboarding-step .status-ok {
+  color: #276749;
+  font-weight: 500;
+}
+
+.onboarding-step .status-error {
+  color: #c53030;
+  font-weight: 500;
+}
+
+.onboarding-step .setup-command {
+  display: block;
+  padding: 0.75rem 1rem;
+  background: #f7fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  overflow-x: auto;
+  margin-bottom: 1rem;
+}
+
+.onboarding-step code {
+  font-size: 0.85rem;
+  background: #edf2f7;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+}
+
+.onboarding-primary {
+  background: #2b6cb0;
+  color: white;
+  border: none;
+  padding: 0.65rem 1.25rem;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.onboarding-primary:hover {
+  background: #2c5282;
+}
+
+.onboarding-step button:not(.onboarding-primary):not(.meeting-type-choice) {
+  background: #edf2f7;
+  color: #2d3748;
+  border: 1px solid #e2e8f0;
+  padding: 0.55rem 1rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.onboarding-step button:not(.onboarding-primary):not(.meeting-type-choice):hover {
+  background: #e2e8f0;
+}
+
+.onboarding-skip {
+  background: transparent !important;
+  border: 1px dashed #a0aec0 !important;
+  color: #4a5568 !important;
+}
+
+.onboarding-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.onboarding-meeting-types {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.meeting-type-choice {
+  text-align: left;
+  padding: 0.85rem 1rem !important;
+  background: #f7fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 8px !important;
+  cursor: pointer;
+  font-size: 0.95rem;
+  color: #2d3748 !important;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+
+.meeting-type-choice:hover {
+  border-color: #63b3ed !important;
+  box-shadow: 0 2px 8px rgba(99, 179, 237, 0.25);
+}

@@ -106,6 +106,29 @@ impl Storage {
         .await
         .map_err(|e| format!("Default-Settings fehlgeschlagen: {}", e))?;
 
+        sqlx::query(
+            "INSERT OR IGNORE INTO settings VALUES
+                ('onboarding_complete', 'false', datetime('now'))",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Default-Settings fehlgeschlagen: {}", e))?;
+
+        // Upgrades: users who already have meetings should not see first-run onboarding.
+        let meeting_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM meetings")
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| format!("Migration fehlgeschlagen: {}", e))?;
+        if meeting_count > 0 {
+            sqlx::query(
+                "INSERT INTO settings (key, value, updated_at) VALUES ('onboarding_complete', 'true', datetime('now'))
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')",
+            )
+            .execute(&self.pool)
+            .await
+            .map_err(|e| format!("Migration fehlgeschlagen: {}", e))?;
+        }
+
         Ok(())
     }
 

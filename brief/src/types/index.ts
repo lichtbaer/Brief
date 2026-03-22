@@ -2,6 +2,7 @@ export type MeetingType = "consulting" | "legal" | "internal" | "custom";
 
 /** Keys persisted in SQLite `settings` (snake_case matches DB). */
 export interface PersistedSettings {
+  onboarding_complete?: string;
   ollama_url: string;
   llm_model: string;
   default_meeting_type: string;

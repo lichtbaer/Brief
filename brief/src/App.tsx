@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LowRamOnboardingBanner } from "./components/LowRamOnboardingBanner";
+import { OnboardingWizard } from "./components/OnboardingWizard";
 import i18n from "./i18n";
 import type { AppSettingsSnapshot, Meeting } from "./types";
 import { HistoryView } from "./views/HistoryView";
@@ -13,6 +14,9 @@ type AppView = "recording" | "output" | "history" | "settings";
 
 export default function App() {
   const { t } = useTranslation();
+  const [onboardingComplete, setOnboardingComplete] = useState<boolean | null>(
+    null,
+  );
   const [currentView, setCurrentView] = useState<AppView>("recording");
   const [currentMeeting, setCurrentMeeting] = useState<Meeting | null>(null);
   const [settingsSnapshot, setSettingsSnapshot] =
@@ -46,8 +50,11 @@ export default function App() {
         if (lang === "en" || lang === "de") {
           void i18n.changeLanguage(lang);
         }
+        setOnboardingComplete(parsed.onboarding_complete === "true");
       })
-      .catch(() => {});
+      .catch(() => {
+        setOnboardingComplete(true);
+      });
   }, []);
 
   const handleLowRamDismissed = () => {
@@ -55,6 +62,22 @@ export default function App() {
       prev ? { ...prev, showLowRamOnboarding: false } : null,
     );
   };
+
+  if (onboardingComplete === null) {
+    return (
+      <div className="app-loading" role="status" aria-live="polite">
+        {t("onboarding.loading_app")}
+      </div>
+    );
+  }
+
+  if (!onboardingComplete) {
+    return (
+      <div className="onboarding-app-shell">
+        <OnboardingWizard onComplete={() => setOnboardingComplete(true)} />
+      </div>
+    );
+  }
 
   return (
     <div className="app-layout">
