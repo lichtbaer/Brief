@@ -48,9 +48,35 @@ async fn stop_recording(
 }
 
 #[tauri::command]
-async fn process_meeting(session_id: String, audio_path: String) -> Result<String, String> {
-    let _ = (session_id, audio_path);
-    Ok("{}".to_string())
+async fn process_meeting(
+    session_id: String,
+    audio_path: String,
+    _state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let transcriber = transcribe::Transcriber::new(None, None);
+
+    if !transcriber.check_available() {
+        return Err(
+            "WhisperX ist nicht verfügbar. Bitte Python-Umgebung einrichten: cd whisperx_runner && bash setup.sh"
+                .to_string(),
+        );
+    }
+
+    let audio_path_buf = std::path::PathBuf::from(&audio_path);
+
+    let result = tokio::task::spawn_blocking(move || transcriber.transcribe(&audio_path_buf))
+        .await
+        .map_err(|e| format!("Task-Fehler: {}", e))??;
+
+    std::fs::remove_file(&audio_path).ok();
+
+    Ok(serde_json::json!({
+        "session_id": session_id,
+        "segments": result.segments,
+        "language": result.language,
+        "status": "transcribed"
+    })
+    .to_string())
 }
 
 #[tauri::command]
