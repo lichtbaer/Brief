@@ -1,8 +1,8 @@
-import { invoke } from "@tauri-apps/api/core";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import type { CSSProperties } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   ActionItem,
@@ -36,9 +36,35 @@ interface OutputViewProps {
 
 export function OutputView({ meeting, onBack }: OutputViewProps) {
   const { t } = useTranslation();
-  const [exportBusy, setExportBusy] = useState<"markdown" | "pdf" | null>(null);
+  const [exportBusy, setExportBusy] = useState<"markdown" | "pdf" | "audio" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
+  // Segment-level playback (per speaker) is planned for v1.1 — depends on diarization (BRIEF-SPIKE-001 / ADR-010).
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!meeting.audio_path) {
+        setAudioUrl(null);
+        return;
+      }
+      try {
+        const path = await invoke<string>("get_audio_path", { id: meeting.id });
+        if (!cancelled) {
+          setAudioUrl(convertFileSrc(path));
+        }
+      } catch {
+        if (!cancelled) {
+          setAudioUrl(null);
+        }
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [meeting.id, meeting.audio_path]);
 
   const output = meeting.output;
   const followUp = output.follow_up_draft;
@@ -87,6 +113,24 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
         await writeFile(path, bytes);
       }
     } catch (e) {
+      showExportError(e);
+    } finally {
+      setExportBusy(null);
+    }
+  };
+
+  const exportAudio = async () => {
+    if (!meeting.audio_path) {
+      return;
+    }
+    setExportBusy("audio");
+    try {
+      const savedPath = await invoke<string>("export_audio", { id: meeting.id });
+      window.alert(t("output.export_audio_success", { path: savedPath }));
+    } catch (e) {
+      if (String(e).includes("cancelled")) {
+        return;
+      }
       showExportError(e);
     } finally {
       setExportBusy(null);
@@ -147,8 +191,33 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
               t("output.export_pdf")
             )}
           </button>
+          {meeting.audio_path ? (
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              disabled={exportBusy !== null}
+              onClick={() => { void exportAudio(); }}
+            >
+              {exportBusy === "audio" ? (
+                <><span className="spinner spinner-dark" />{t("output.exporting")}</>
+              ) : (
+                t("output.export_audio")
+              )}
+            </button>
+          ) : null}
         </div>
       </div>
+
+      <section className="output-section">
+        <h2>{t("output.audio_recording")}</h2>
+        {audioUrl ? (
+          <audio controls src={audioUrl} style={{ width: "100%", marginTop: "0.5rem" }} />
+        ) : (
+          <p style={{ marginTop: "0.5rem", color: "var(--color-text-muted)", fontSize: "0.9rem" }}>
+            {t("output.audio_not_saved")}
+          </p>
+        )}
+      </section>
 
       <section className="output-section">
         <h2>{t("output.summary")}</h2>
