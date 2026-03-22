@@ -3,8 +3,7 @@
     "title": "Brief"
   },
   "nav": {
-    "recording": "Recording",
-    "output": "Output",
+    "record": "Recording",
     "history": "History",
     "settings": "Settings"
   },

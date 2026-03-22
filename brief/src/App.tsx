@@ -13,23 +13,23 @@ type AppView = "recording" | "output" | "history" | "settings";
 
 export default function App() {
   const { t } = useTranslation();
-  const [view, setView] = useState<AppView>("recording");
+  const [currentView, setCurrentView] = useState<AppView>("recording");
   const [currentMeeting, setCurrentMeeting] = useState<Meeting | null>(null);
   const [settingsSnapshot, setSettingsSnapshot] =
     useState<AppSettingsSnapshot | null>(null);
 
   const handleMeetingDone = (meeting: Meeting) => {
     setCurrentMeeting(meeting);
-    setView("output");
+    setCurrentView("output");
+  };
+
+  const handleOpenMeeting = (meeting: Meeting) => {
+    setCurrentMeeting(meeting);
+    setCurrentView("output");
   };
 
   const handleOutputBack = () => {
-    setView("recording");
-  };
-
-  const handleOpenMeetingFromHistory = (meeting: Meeting) => {
-    setCurrentMeeting(meeting);
-    setView("output");
+    setCurrentView("recording");
   };
 
   useEffect(() => {
@@ -57,46 +57,62 @@ export default function App() {
   };
 
   return (
-    <div style={{ padding: "1rem", fontFamily: "system-ui, sans-serif" }}>
-      <h1>{t("app.title")}</h1>
-      {settingsSnapshot?.showLowRamOnboarding === true && (
-        <LowRamOnboardingBanner
-          recommendedModel={settingsSnapshot.recommendedModel}
-          onDismissed={handleLowRamDismissed}
-        />
-      )}
-      <nav style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-        {(
-          [
-            ["recording", "nav.recording"],
-            ["output", "nav.output"],
-            ["history", "nav.history"],
-            ["settings", "nav.settings"],
-          ] as const
-        ).map(([key, labelKey]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setView(key)}
-            aria-current={view === key ? "page" : undefined}
-          >
-            {t(labelKey)}
-          </button>
-        ))}
+    <div className="app-layout">
+      <nav className="sidebar" aria-label={t("app.title")}>
+        <div className="app-logo">
+          <span>{t("app.title")}</span>
+        </div>
+        <button
+          type="button"
+          className={
+            currentView === "recording" ? "nav-item active" : "nav-item"
+          }
+          onClick={() => setCurrentView("recording")}
+          aria-current={currentView === "recording" ? "page" : undefined}
+        >
+          🎙 {t("nav.record")}
+        </button>
+        <button
+          type="button"
+          className={currentView === "history" ? "nav-item active" : "nav-item"}
+          onClick={() => setCurrentView("history")}
+          aria-current={currentView === "history" ? "page" : undefined}
+        >
+          📋 {t("nav.history")}
+        </button>
+        <button
+          type="button"
+          className={
+            currentView === "settings" ? "nav-item active" : "nav-item"
+          }
+          onClick={() => setCurrentView("settings")}
+          aria-current={currentView === "settings" ? "page" : undefined}
+        >
+          ⚙️ {t("nav.settings")}
+        </button>
       </nav>
-      {view === "recording" && (
-        <RecordingView onMeetingDone={handleMeetingDone} />
-      )}
-      {view === "output" &&
-        (currentMeeting ? (
-          <OutputView meeting={currentMeeting} onBack={handleOutputBack} />
-        ) : (
-          <p role="status">{t("output.empty")}</p>
-        ))}
-      {view === "history" && (
-        <HistoryView onOpenMeeting={handleOpenMeetingFromHistory} />
-      )}
-      {view === "settings" && <SettingsView />}
+
+      <main className="main-content">
+        {settingsSnapshot?.showLowRamOnboarding === true && (
+          <LowRamOnboardingBanner
+            recommendedModel={settingsSnapshot.recommendedModel}
+            onDismissed={handleLowRamDismissed}
+          />
+        )}
+        {currentView === "recording" && (
+          <RecordingView onMeetingDone={handleMeetingDone} />
+        )}
+        {currentView === "output" && currentMeeting && (
+          <OutputView
+            meeting={currentMeeting}
+            onBack={handleOutputBack}
+          />
+        )}
+        {currentView === "history" && (
+          <HistoryView onOpenMeeting={handleOpenMeeting} />
+        )}
+        {currentView === "settings" && <SettingsView />}
+      </main>
     </div>
   );
 }
