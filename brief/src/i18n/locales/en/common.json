@@ -42,6 +42,21 @@
   },
   "settings": {
     "retain_audio_label": "Keep audio after transcription (opt-in)",
-    "retain_audio_description": "Default: audio is deleted after transcription. When enabled, the recording is stored encrypted in the app folder."
+    "retain_audio_description": "Default: audio is deleted after transcription. When enabled, the recording is stored encrypted in the app folder.",
+    "memory_detected": "Detected system memory: ~{{gb}} GB",
+    "llm_model_label": "Ollama LLM model",
+    "llm_model_save": "Save model",
+    "llm_model_saved": "Saved.",
+    "llm_model_save_error": "Could not save.",
+    "llm_model_override_hint": "Manual selection is active — automatic RAM-based recommendation is no longer applied.",
+    "loading": "Loading settings…"
+  },
+  "onboarding": {
+    "low_ram": {
+      "title": "Limited memory (8 GB)",
+      "body": "Brief recommends a smaller Ollama model for smooth performance. It may be slightly less precise on complex tasks, but runs reliably on this device. Please download the model manually:",
+      "recommended_label": "Recommended model:",
+      "dismiss": "Dismiss"
+    }
   }
 }
