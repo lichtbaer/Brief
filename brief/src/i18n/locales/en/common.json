@@ -68,15 +68,24 @@
     "audio_not_saved": "Audio not saved (enable opt-in in Settings)"
   },
   "settings": {
+    "title": "Settings",
+    "loading": "Loading settings…",
+    "saved": "✓ Saved",
+    "ai_section": "AI & model",
+    "ollama_url": "Ollama URL",
+    "llm_model": "LLM model",
+    "llm_model_hint": "e.g. llama3.1:8b or llama3.2:3b",
+    "recording_section": "Recording",
+    "meeting_language": "Meeting language",
+    "default_meeting_type": "Default meeting type",
     "retain_audio_label": "Keep audio after transcription (opt-in)",
     "retain_audio_description": "Default: audio is deleted after transcription. When enabled, the recording is stored encrypted in the app folder.",
+    "app_section": "App",
+    "ui_language": "User interface language",
+    "retention_days": "Retention period (days)",
+    "retention_days_hint": "Meetings older than X days are deleted automatically",
     "memory_detected": "Detected system memory: ~{{gb}} GB",
-    "llm_model_label": "Ollama LLM model",
-    "llm_model_save": "Save model",
-    "llm_model_saved": "Saved.",
-    "llm_model_save_error": "Could not save.",
-    "llm_model_override_hint": "Manual selection is active — automatic RAM-based recommendation is no longer applied.",
-    "loading": "Loading settings…"
+    "llm_model_override_hint": "Manual selection is active — automatic RAM-based recommendation is no longer applied."
   },
   "onboarding": {
     "low_ram": {
