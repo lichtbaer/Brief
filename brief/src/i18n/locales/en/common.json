@@ -38,10 +38,12 @@
     "meeting_type_label": "Meeting type",
     "step_transcribing": "Transcribing audio…",
     "step_summarizing": "Generating summary…",
-    "elapsed": "{{time}} recorded"
+    "elapsed": "{{time}} recorded",
+    "processing_elapsed": "{{time}} processing"
   },
   "errors": {
     "whisperx_unavailable": "WhisperX is not available. Please set up the Python environment: cd whisperx_runner && bash setup.sh",
+    "transcription_timeout": "Transcription took too long and was stopped. Increase the timeout in settings or check WhisperX.",
     "no_microphone": "No microphone found",
     "processing_failed": "Processing failed: {{message}}",
     "alert": "Error: {{message}}"
@@ -87,6 +89,8 @@
     "llm_model": "LLM model",
     "llm_model_hint": "e.g. llama3.1:8b or llama3.2:3b",
     "recording_section": "Recording",
+    "whisperx_timeout": "Transcription — maximum wait time (seconds)",
+    "whisperx_timeout_hint": "Default 900 (15 minutes). Increase for long meetings or slow hardware (60–86400).",
     "meeting_language": "Meeting language",
     "default_meeting_type": "Default meeting type",
     "retain_audio_label": "Keep audio after transcription (opt-in)",

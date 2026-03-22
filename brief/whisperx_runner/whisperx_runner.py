@@ -14,17 +14,26 @@ def main():
     language = sys.argv[2] if len(sys.argv) > 2 else "de"
     model_size = sys.argv[3] if len(sys.argv) > 3 else "base"
 
+    def progress(msg: str) -> None:
+        print(msg, file=sys.stderr, flush=True)
+
     try:
+        progress("Loading WhisperX model…")
         model = whisperx.load_model(model_size, device="cpu", language=language)
+        progress("Loading audio…")
         audio = whisperx.load_audio(wav_path)
+        progress("Transcribing…")
         result = model.transcribe(audio, language=language)
 
+        progress("Aligning words…")
         model_a, metadata = whisperx.load_align_model(language_code=language, device="cpu")
         result = whisperx.align(result["segments"], model_a, metadata, audio, device="cpu")
 
+        progress("Speaker diarization…")
         diarize_model = DiarizationPipeline(device="cpu")
         diarize_segments = diarize_model(audio)
         result = whisperx.assign_word_speakers(diarize_segments, result)
+        progress("Done.")
 
         output = {
             "segments": [

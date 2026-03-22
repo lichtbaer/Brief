@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { Meeting, MeetingType } from "../types";
+import { TRANSCRIPTION_TIMEOUT_ERROR, type Meeting, type MeetingType } from "../types";
 
 type AppStatus = "idle" | "recording" | "processing" | "done" | "error";
 type ProcessingStep = "transcribing" | "summarizing";
@@ -24,6 +24,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [meetingType, setMeetingType] = useState<MeetingType>("consulting");
   const [elapsed, setElapsed] = useState(0);
+  const [processingElapsed, setProcessingElapsed] = useState(0);
   const [processingStep, setProcessingStep] = useState<ProcessingStep | null>(null);
 
   // Elapsed timer during recording
@@ -33,6 +34,16 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
       return;
     }
     const id = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(id);
+  }, [status]);
+
+  // Elapsed timer during WhisperX + summarization
+  useEffect(() => {
+    if (status !== "processing") {
+      setProcessingElapsed(0);
+      return;
+    }
+    const id = setInterval(() => setProcessingElapsed((s) => s + 1), 1000);
     return () => clearInterval(id);
   }, [status]);
 
@@ -71,7 +82,12 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
         setStatus("done");
       }
     } catch (err) {
-      setError(String(err));
+      const raw = String(err);
+      setError(
+        raw.includes(TRANSCRIPTION_TIMEOUT_ERROR)
+          ? t("errors.transcription_timeout")
+          : raw,
+      );
       setStatus("error");
     }
   };
@@ -185,6 +201,9 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
             {processingStep === "transcribing"
               ? t("recording.step_transcribing")
               : t("recording.step_summarizing")}
+          </span>
+          <span className="record-timer">
+            {t("recording.processing_elapsed", { time: formatTime(processingElapsed) })}
           </span>
         </div>
       )}

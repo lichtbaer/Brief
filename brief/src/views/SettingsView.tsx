@@ -12,6 +12,7 @@ const DEFAULTS: PersistedSettings = {
   retain_audio: "false",
   retention_days: "365",
   ui_language: "de",
+  whisperx_timeout_secs: "900",
 };
 
 function mergeSettings(raw: Record<string, string>): PersistedSettings {
@@ -23,6 +24,7 @@ function mergeSettings(raw: Record<string, string>): PersistedSettings {
     retain_audio: raw.retain_audio ?? DEFAULTS.retain_audio,
     retention_days: raw.retention_days ?? DEFAULTS.retention_days,
     ui_language: raw.ui_language ?? DEFAULTS.ui_language,
+    whisperx_timeout_secs: raw.whisperx_timeout_secs ?? DEFAULTS.whisperx_timeout_secs,
   };
 }
 
@@ -162,6 +164,25 @@ export function SettingsView() {
             <option value="de">Deutsch</option>
             <option value="en">English</option>
           </select>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label" htmlFor="whisperx-timeout-secs">
+            {t("settings.whisperx_timeout")}
+          </label>
+          <input
+            id="whisperx-timeout-secs"
+            type="number"
+            className="form-input"
+            value={settings.whisperx_timeout_secs ?? DEFAULTS.whisperx_timeout_secs}
+            min={60}
+            max={86400}
+            onChange={(e) => void updateSetting("whisperx_timeout_secs", e.target.value)}
+            style={{ maxWidth: "10rem" }}
+          />
+          <small style={{ display: "block", marginTop: "0.35rem", color: "var(--color-text-muted)", fontSize: "0.8rem" }}>
+            {t("settings.whisperx_timeout_hint")}
+          </small>
         </div>
 
         <div className="form-group">

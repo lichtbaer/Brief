@@ -38,10 +38,12 @@
     "meeting_type_label": "Meeting-Typ",
     "step_transcribing": "Transkribiere Audio…",
     "step_summarizing": "Erstelle Zusammenfassung…",
-    "elapsed": "{{time}} aufgezeichnet"
+    "elapsed": "{{time}} aufgezeichnet",
+    "processing_elapsed": "{{time}} verarbeitet"
   },
   "errors": {
     "whisperx_unavailable": "WhisperX ist nicht verfügbar. Bitte Python-Umgebung einrichten: cd whisperx_runner && bash setup.sh",
+    "transcription_timeout": "Die Transkription hat zu lange gedauert und wurde abgebrochen. Erhöhe das Timeout in den Einstellungen oder prüfe WhisperX.",
     "no_microphone": "Kein Mikrofon gefunden",
     "processing_failed": "Verarbeitung fehlgeschlagen: {{message}}",
     "alert": "Fehler: {{message}}"
@@ -87,6 +89,8 @@
     "llm_model": "LLM-Modell",
     "llm_model_hint": "z. B. llama3.1:8b oder llama3.2:3b",
     "recording_section": "Aufnahme",
+    "whisperx_timeout": "Transkription — maximale Wartezeit (Sekunden)",
+    "whisperx_timeout_hint": "Standard 900 (15 Minuten). Bei sehr langen Meetings oder langsamer Hardware erhöhen (60–86400).",
     "meeting_language": "Meeting-Sprache",
     "default_meeting_type": "Standard Meeting-Typ",
     "retain_audio_label": "Audio nach Transkription behalten (Opt-in)",

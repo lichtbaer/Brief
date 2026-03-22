@@ -1,5 +1,8 @@
 export type MeetingType = "consulting" | "legal" | "internal" | "custom";
 
+/** Must match `transcribe::TRANSCRIPTION_TIMEOUT_ERROR` in the Tauri backend. */
+export const TRANSCRIPTION_TIMEOUT_ERROR = "BRIEF_ERR_TRANSCRIPTION_TIMEOUT";
+
 /** Keys persisted in SQLite `settings` (snake_case matches DB). */
 export interface PersistedSettings {
   onboarding_complete?: string;
@@ -10,6 +13,8 @@ export interface PersistedSettings {
   retain_audio: string;
   retention_days: string;
   ui_language?: string;
+  /** WhisperX subprocess timeout in seconds (default 900 = 15 min). */
+  whisperx_timeout_secs?: string;
 }
 
 /** Mirrors `AppSettingsSnapshot` from the Tauri backend. */
