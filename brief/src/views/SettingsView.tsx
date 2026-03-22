@@ -1,3 +1,8 @@
+import { useTranslation } from "react-i18next";
+
 export function SettingsView() {
-  return <section aria-label="Einstellungen">Settings</section>;
+  const { t } = useTranslation();
+  return (
+    <section aria-label={t("nav.settings")}>{t("views.settings")}</section>
+  );
 }

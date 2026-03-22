@@ -1,0 +1,43 @@
+{
+  "app": {
+    "title": "Brief"
+  },
+  "nav": {
+    "recording": "Recording",
+    "output": "Output",
+    "history": "History",
+    "settings": "Settings"
+  },
+  "views": {
+    "output": "Output",
+    "history": "History",
+    "settings": "Settings"
+  },
+  "recording": {
+    "aria_section": "Recording",
+    "aria_transcript": "Transcript",
+    "status_label_prefix": "Status: ",
+    "status_idle": "Ready",
+    "status_recording": "Recording",
+    "status_processing": "Processing...",
+    "status_done": "Done",
+    "status_error": "Error",
+    "btn_start": "Start Recording",
+    "btn_stop": "Stop & Process",
+    "btn_restart": "Start Over"
+  },
+  "errors": {
+    "whisperx_unavailable": "WhisperX is not available. Please set up the Python environment: cd whisperx_runner && bash setup.sh",
+    "no_microphone": "No microphone found",
+    "processing_failed": "Processing failed: {{message}}",
+    "alert": "Error: {{message}}"
+  },
+  "output": {
+    "speaker_label": "{{speaker}}:",
+    "audio_not_saved": "Audio not saved (enable opt-in in Settings)"
+  },
+  "settings": {
+    "retain_audio_label": "Keep audio after transcription (opt-in)",
+    "retain_audio_description": "Default: audio is deleted after transcription. When enabled, the recording is stored encrypted in the app folder."
+  }
+}
