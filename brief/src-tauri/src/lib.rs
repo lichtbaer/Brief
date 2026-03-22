@@ -79,7 +79,7 @@ async fn process_meeting(
         session_id.clone(),
         meeting_type,
         title.unwrap_or_else(|| "Meeting".to_string()),
-        Some(audio_path.clone()),
+        None,
         &result.segments,
         &result.language,
     );
