@@ -48,9 +48,29 @@ async fn stop_recording(
 }
 
 #[tauri::command]
-async fn process_meeting(session_id: String, audio_path: String) -> Result<String, String> {
-    let _ = (session_id, audio_path);
-    Ok("{}".to_string())
+async fn process_meeting(
+    session_id: String,
+    audio_path: String,
+    _state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let transcriber = transcribe::Transcriber::new(None, None);
+
+    if !transcriber.check_ollama_available().await {
+        return Err(
+            "Ollama ist nicht erreichbar. Bitte stelle sicher dass Ollama läuft (ollama serve)."
+                .to_string(),
+        );
+    }
+
+    let audio_path = std::path::PathBuf::from(&audio_path);
+    let transcript = transcriber.transcribe(&audio_path).await?;
+
+    Ok(serde_json::json!({
+        "session_id": session_id,
+        "transcript": transcript,
+        "status": "transcribed"
+    })
+    .to_string())
 }
 
 #[tauri::command]
