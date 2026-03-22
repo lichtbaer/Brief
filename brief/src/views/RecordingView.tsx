@@ -5,7 +5,11 @@ import type { Meeting, MeetingType } from "../types";
 
 type AppStatus = "idle" | "recording" | "processing" | "done" | "error";
 
-export function RecordingView() {
+interface RecordingViewProps {
+  onMeetingDone?: (meeting: Meeting) => void;
+}
+
+export function RecordingView({ onMeetingDone }: RecordingViewProps) {
   const { t } = useTranslation();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [status, setStatus] = useState<AppStatus>("idle");
@@ -29,8 +33,13 @@ export function RecordingView() {
         meeting_type: meetingType,
       });
       const parsed = JSON.parse(result) as Meeting;
-      setMeeting(parsed);
-      setStatus("done");
+      if (onMeetingDone) {
+        onMeetingDone(parsed);
+        reset();
+      } else {
+        setMeeting(parsed);
+        setStatus("done");
+      }
     } catch (err) {
       setError(String(err));
       setStatus("error");

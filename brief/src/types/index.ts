@@ -27,12 +27,13 @@ export interface Decision {
   context?: string;
 }
 
+/** LLM may return an empty object when follow-up is not generated. */
 export interface FollowUpDraft {
-  subject: string;
-  greeting: string;
-  body: string;
-  closing: string;
-  full_text: string;
+  subject?: string;
+  greeting?: string;
+  body?: string;
+  closing?: string;
+  full_text?: string;
 }
 
 export interface MeetingOutput {

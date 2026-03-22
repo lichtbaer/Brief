@@ -16,7 +16,8 @@
   "meeting_types": {
     "consulting": "Beratungsgespräch",
     "legal": "Mandantengespräch",
-    "internal": "Internes Meeting"
+    "internal": "Internes Meeting",
+    "custom": "Benutzerdefiniert"
   },
   "recording": {
     "smoke_test_heading": "Brief — Phase 1 Smoke Test",
@@ -43,6 +44,19 @@
     "alert": "Fehler: {{message}}"
   },
   "output": {
+    "back": "Zurück",
+    "summary": "Zusammenfassung",
+    "topics": "Besprochene Themen",
+    "decisions": "Entscheidungen",
+    "action_items": "Action Items",
+    "follow_up_draft": "Follow-up E-Mail",
+    "subject": "Betreff",
+    "copy_email": "E-Mail kopieren",
+    "transcript": "Vollständiges Transkript",
+    "participants": "Teilnehmer",
+    "empty": "Noch keine Ausgabe — bitte zuerst eine Aufnahme verarbeiten.",
+    "action_owner": "👤 {{owner}}",
+    "action_due": "📅 {{date}}",
     "speaker_label": "{{speaker}}:",
     "audio_not_saved": "Audio nicht gespeichert (Opt-in in Einstellungen aktivieren)"
   },
