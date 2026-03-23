@@ -25,7 +25,7 @@
     "active": true,
     "targets": ["dmg", "appimage"],
     "resources": [
-      "../whisperx_runner/models/**"
+      "../whisperx_runner/models/**/*"
     ],
     "icon": [
       "icons/32x32.png",
