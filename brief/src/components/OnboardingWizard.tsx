@@ -1,7 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useState } from "react";
+import { platform } from "@tauri-apps/plugin-os";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AppSettingsSnapshot } from "../types";
+
+/*
+ * Linux smoke-test checklist (Ubuntu 22.04, AppImage or `npm run tauri dev`):
+ * [ ] App starts
+ * [ ] Onboarding wizard appears on first launch
+ * [ ] WhisperX check returns true when venv Python is set up
+ * [ ] Ollama check detects localhost:11434
+ * [ ] Full meeting flow: record → transcribe → summarize → OutputView
+ * [ ] Export as Markdown and PDF works
+ * [ ] HistoryView and search work
+ */
 
 type OnboardingStep =
   | "welcome"
@@ -19,13 +31,28 @@ type Props = {
   onComplete: () => void;
 };
 
+const WHISPERX_SETUP_COMMAND = "cd whisperx_runner && bash setup.sh";
+const LINUX_PYTHON_DEPS = "sudo apt-get install -y python3 python3-venv python3-pip";
+const OLLAMA_LINUX_INSTALL = "curl -fsSL https://ollama.com/install.sh | sh";
+
+/**
+ * First-run onboarding: WhisperX + Ollama checks, default meeting type, completion flag.
+ * Setup instructions are platform-specific (apt on Linux, Ollama install hints).
+ */
 export function OnboardingWizard({ onComplete }: Props) {
   const { t } = useTranslation();
   const [step, setStep] = useState<OnboardingStep>("welcome");
+  const [currentPlatform, setCurrentPlatform] = useState<string>("macos");
   const [whisperxOk, setWhisperxOk] = useState<boolean | null>(null);
   const [ollamaStatus, setOllamaStatus] = useState<OllamaCheckResult | null>(null);
   const [checkingWhisperx, setCheckingWhisperx] = useState(false);
   const [checkingOllama, setCheckingOllama] = useState(false);
+
+  useEffect(() => {
+    setCurrentPlatform(platform());
+  }, []);
+
+  const isLinux = currentPlatform === "linux";
 
   const checkWhisperX = async () => {
     setCheckingWhisperx(true);
@@ -112,7 +139,14 @@ export function OnboardingWizard({ onComplete }: Props) {
           {!checkingWhisperx && whisperxOk === false && (
             <>
               <p className="status-error">{t("onboarding.whisperx_missing")}</p>
-              <pre className="setup-command">cd whisperx_runner && bash setup.sh</pre>
+              {isLinux && (
+                <>
+                  <p>{t("onboarding.linux_prerequisite")}</p>
+                  <pre className="setup-command">{LINUX_PYTHON_DEPS}</pre>
+                  <p>{t("onboarding.whisperx_runner_hint_linux")}</p>
+                </>
+              )}
+              <pre className="setup-command">{WHISPERX_SETUP_COMMAND}</pre>
               <div className="onboarding-actions-row">
                 <button
                   type="button"
@@ -158,6 +192,18 @@ export function OnboardingWizard({ onComplete }: Props) {
           {!checkingOllama && ollamaStatus?.running === false && (
             <>
               <p className="status-error">{t("onboarding.ollama_missing")}</p>
+              {isLinux ? (
+                <>
+                  <p>{t("onboarding.ollama_install_linux")}</p>
+                  <pre className="setup-command">{OLLAMA_LINUX_INSTALL}</pre>
+                </>
+              ) : (
+                <p>
+                  <a href="https://ollama.ai" target="_blank" rel="noopener noreferrer">
+                    {t("onboarding.ollama_install_mac")}
+                  </a>
+                </p>
+              )}
               <pre className="setup-command">ollama serve</pre>
               <p>
                 {t("onboarding.ollama_model_hint")}:{" "}
