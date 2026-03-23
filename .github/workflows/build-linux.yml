@@ -1,0 +1,46 @@
+name: Linux Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libssl-dev \
+            pkg-config \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libasound2-dev
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: brief/package-lock.json
+
+      - name: Install npm dependencies
+        run: cd brief && npm ci
+
+      - name: Build
+        run: cd brief && npm run tauri build -- --bundles appimage
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: brief-linux-appimage
+          path: brief/src-tauri/target/release/bundle/appimage/*.AppImage

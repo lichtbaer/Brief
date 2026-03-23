@@ -65,6 +65,41 @@ npm install
 npm run tauri dev
 ```
 
+## Linux Setup
+
+### Voraussetzungen
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install -y \
+  libwebkit2gtk-4.1-dev \
+  libssl-dev \
+  pkg-config \
+  libgtk-3-dev \
+  libasound2-dev
+
+# Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Node.js 20
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+### WhisperX Setup
+
+Identisch mit macOS:
+
+```bash
+cd brief/whisperx_runner && bash setup.sh
+```
+
+### Build
+
+```bash
+cd brief && npm install && npm run tauri dev
+```
+
 ### Type Check
 
 ```bash
