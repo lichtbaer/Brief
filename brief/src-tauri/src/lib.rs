@@ -76,17 +76,29 @@ async fn process_meeting(
     meeting_type: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
-    let whisperx_timeout_secs: u64 = {
+    let (whisperx_timeout_secs, meeting_language) = {
         let storage = state.storage.lock().await;
-        storage
+        let timeout = storage
             .get_setting("whisperx_timeout_secs")
             .await?
             .and_then(|s| s.parse().ok())
-            .unwrap_or(transcribe::DEFAULT_WHISPERX_TIMEOUT_SECS)
+            .unwrap_or(transcribe::DEFAULT_WHISPERX_TIMEOUT_SECS);
+        let lang = storage
+            .get_setting("meeting_language")
+            .await?
+            .unwrap_or_else(|| "de".to_string());
+        let lang = lang.trim().to_lowercase();
+        let lang = if matches!(lang.as_str(), "de" | "en") {
+            lang
+        } else {
+            "de".to_string()
+        };
+        (timeout, lang)
     };
 
     let transcriber = transcribe::Transcriber::new(None, None)
-        .with_timeout_secs(whisperx_timeout_secs);
+        .with_timeout_secs(whisperx_timeout_secs)
+        .with_language(meeting_language);
 
     if !transcriber.check_available() {
         return Err(
@@ -98,9 +110,10 @@ async fn process_meeting(
     let audio_path_buf = std::path::PathBuf::from(&audio_path);
     let audio_path_for_transcribe = audio_path_buf.clone();
 
-    let result = tokio::task::spawn_blocking(move || transcriber.transcribe(&audio_path_for_transcribe))
-        .await
-        .map_err(|e| format!("Task-Fehler: {}", e))??;
+    let result =
+        tokio::task::spawn_blocking(move || transcriber.transcribe(&audio_path_for_transcribe))
+            .await
+            .map_err(|e| format!("Task-Fehler: {}", e))??;
 
     let transcript = result
         .segments
@@ -147,10 +160,7 @@ async fn process_meeting(
 
     let mut title: String = output.summary_short.chars().take(60).collect();
     if title.trim().is_empty() {
-        title = format!(
-            "Meeting {}",
-            session_id.chars().take(8).collect::<String>()
-        );
+        title = format!("Meeting {}", session_id.chars().take(8).collect::<String>());
     }
 
     let retain = {
@@ -376,13 +386,10 @@ async fn export_audio(
             .ok_or_else(|| format!("Meeting {} nicht gefunden", id))?;
         let meeting: serde_json::Value =
             serde_json::from_str(&meeting_json).map_err(|e| e.to_string())?;
-        let audio_path = meeting["audio_path"].as_str().ok_or_else(|| {
-            "Kein gespeichertes Audio für dieses Meeting".to_string()
-        })?;
-        let title = meeting["title"]
+        let audio_path = meeting["audio_path"]
             .as_str()
-            .unwrap_or("meeting")
-            .to_string();
+            .ok_or_else(|| "Kein gespeichertes Audio für dieses Meeting".to_string())?;
+        let title = meeting["title"].as_str().unwrap_or("meeting").to_string();
         Ok::<_, String>((
             PathBuf::from(audio_path),
             format!("{}.wav", safe_export_stem(title)),
@@ -405,7 +412,8 @@ async fn export_audio(
 
     let dest_pb = dest_fp.into_path().map_err(|e| e.to_string())?;
 
-    std::fs::copy(&src, &dest_pb).map_err(|e| format!("Audio exportieren fehlgeschlagen: {}", e))?;
+    std::fs::copy(&src, &dest_pb)
+        .map_err(|e| format!("Audio exportieren fehlgeschlagen: {}", e))?;
 
     dest_pb
         .to_str()
@@ -478,6 +486,15 @@ async fn update_setting(
         storage
             .set_setting("whisperx_timeout_secs", &v.to_string())
             .await?;
+        return Ok(());
+    }
+    if key == "meeting_language" {
+        let trimmed = value.trim().to_lowercase();
+        if !matches!(trimmed.as_str(), "de" | "en") {
+            return Err("Meeting-Sprache: nur \"de\" oder \"en\" erlaubt".to_string());
+        }
+        let storage = state.storage.lock().await;
+        storage.set_setting("meeting_language", &trimmed).await?;
         return Ok(());
     }
     let storage = state.storage.lock().await;
