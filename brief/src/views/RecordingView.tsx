@@ -88,9 +88,9 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
     setStatus("processing");
     try {
       const result = await invoke<string>("process_meeting", {
-        session_id: sid,
-        audio_path: audioPath,
-        meeting_type: meetingType,
+        sessionId: sid,
+        audioPath: audioPath,
+        meetingType: meetingType,
       });
       const parsed = JSON.parse(result) as Meeting;
       if (onMeetingDone) {
@@ -116,7 +116,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
     setMeeting(null);
     try {
       const id = await invoke<string>("start_recording", {
-        meeting_type: meetingType,
+        meetingType: meetingType,
       });
       setSessionId(id);
       setStatus("recording");
@@ -132,7 +132,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
     const currentSessionId = sessionId;
     try {
       const path = await invoke<string>("stop_recording", {
-        session_id: currentSessionId,
+        sessionId: currentSessionId,
       });
       setSessionId(null);
       await processMeeting(currentSessionId, path);

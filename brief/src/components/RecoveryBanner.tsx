@@ -29,7 +29,7 @@ export function RecoveryBanner({
     setBusy(true);
     try {
       const raw = await invoke<string>("recover_orphaned_recording", {
-        audio_path: recording.path,
+        audioPath: recording.path,
       });
       const meeting = JSON.parse(raw) as Meeting;
       onRecovered(meeting);
@@ -50,7 +50,7 @@ export function RecoveryBanner({
     setBusy(true);
     try {
       await invoke("discard_orphaned_recording", {
-        audio_path: recording.path,
+        audioPath: recording.path,
       });
       onDismissBanner();
     } catch (e) {
