@@ -128,13 +128,13 @@ fn parse_meeting_output(
         .unwrap_or_else(|| serde_json::json!({}));
 
     Ok(MeetingOutput {
-        summary_short: value["summary_short"]
-            .as_str()
-            .unwrap_or("")
-            .to_string(),
+        summary_short: value["summary_short"].as_str().unwrap_or("").to_string(),
         topics: value["topics"].as_array().cloned().unwrap_or_default(),
         decisions: value["decisions"].as_array().cloned().unwrap_or_default(),
-        action_items: value["action_items"].as_array().cloned().unwrap_or_default(),
+        action_items: value["action_items"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default(),
         follow_up_draft: follow_up,
         participants_mentioned: value["participants_mentioned"]
             .as_array()

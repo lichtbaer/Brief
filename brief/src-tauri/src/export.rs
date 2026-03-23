@@ -127,8 +127,7 @@ fn wrap_for_pdf(line: &str, max_chars: usize) -> Vec<String> {
 
 /// Renders Markdown as a simple multi-page A4 PDF (Helvetica).
 pub fn generate_pdf(markdown: &str) -> Result<Vec<u8>, String> {
-    let (doc, page1, layer1) =
-        PdfDocument::new("Brief Export", Mm(210.0), Mm(297.0), "Layer 1");
+    let (doc, page1, layer1) = PdfDocument::new("Brief Export", Mm(210.0), Mm(297.0), "Layer 1");
     let font = doc
         .add_builtin_font(BuiltinFont::Helvetica)
         .map_err(|e| e.to_string())?;
