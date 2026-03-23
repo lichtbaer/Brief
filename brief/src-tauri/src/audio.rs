@@ -324,3 +324,25 @@ fn resample_to_16k(samples: &[f32], source_rate: u32) -> Vec<f32> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::resample_to_16k;
+
+    #[test]
+    fn resample_to_16k_identity_when_already_16k() {
+        let samples: Vec<f32> = (0..160).map(|i| i as f32 / 100.0).collect();
+        let out = resample_to_16k(&samples, 16000);
+        assert_eq!(out.len(), samples.len());
+        assert_eq!(out, samples);
+    }
+
+    #[test]
+    fn resample_to_16k_48khz_length_and_ratio() {
+        // One second at 48 kHz → 48_000 input samples → ~16_000 output (16 kHz).
+        let samples: Vec<f32> = vec![1.0; 48_000];
+        let out = resample_to_16k(&samples, 48_000);
+        assert_eq!(out.len(), 16_000);
+        assert!(out.iter().all(|&s| (s - 1.0).abs() < f32::EPSILON));
+    }
+}
