@@ -14,7 +14,10 @@ __pycache__/
 dist
 dist-ssr
 *.local
-
+whisperx_runner/.venv/*
+whisperx_runner/venv/*
+whisperx_runner/whisperx_runner.egg-info/
+whisperx_runner/build/*
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
