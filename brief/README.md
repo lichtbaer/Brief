@@ -21,10 +21,25 @@ Transkription und Speaker-Diarization laufen über WhisperX (Python). Einrichtun
 ```bash
 cd brief/whisperx_runner
 bash setup.sh
-# Anschließend ggf. die venv aktivieren: source .venv/bin/activate
 ```
 
-Das Modell `base` wird beim ersten Aufruf heruntergeladen (~150MB). Für pyannote-Diarization kann ein Hugging Face Token nötig sein (`HF_TOKEN` / `huggingface-cli login`).
+### Modelle herunterladen (einmalig)
+
+Die pyannote-Diarization-Modelle liegen hinter einer HuggingFace-Lizenzschranke.
+Akzeptiere die Lizenzen und lade die Modelle einmalig mit deinem HF-Token herunter:
+
+1. Lizenzen akzeptieren: [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) und [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0)
+2. Token erstellen: https://huggingface.co/settings/tokens
+
+```bash
+cd brief/whisperx_runner
+source .venv/bin/activate
+export HF_TOKEN="hf_..."
+python download_models.py
+```
+
+Die Modelle landen in `whisperx_runner/models/` (~170 MB) und werden im App-Bundle mitgeliefert.
+Endbenutzer brauchen keinen HuggingFace-Account.
 
 ---
 

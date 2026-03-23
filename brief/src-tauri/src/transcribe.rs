@@ -184,13 +184,10 @@ impl Transcriber {
                             return Err(format!("WhisperX-Fehler: {}", err.error));
                         }
                         return Err(format!(
-                            "WhisperX-Fehler (Exit {}): {}",
+                            "WhisperX-Fehler (Exit {}): stdout={} stderr={}",
                             status.code().unwrap_or(-1),
-                            if stderr_str.is_empty() {
-                                stdout.as_ref()
-                            } else {
-                                stderr_str.as_ref()
-                            }
+                            stdout,
+                            stderr_str
                         ));
                     }
 
