@@ -77,3 +77,57 @@ export interface Meeting {
   audio_path: string | null;
   tags: string[];
 }
+
+/** One diarized utterance; mirrors `transcribe::DiarizedSegment` in the Tauri backend. */
+export interface DiarizedSegment {
+  speaker: string;
+  start: number;
+  end: number;
+  text: string;
+}
+
+const MEETING_TYPES: MeetingType[] = ["consulting", "legal", "internal", "custom"];
+
+/**
+ * Runtime check for values deserialized from the backend (e.g. invoke / JSON).
+ * Narrows `unknown` to Meeting when shape matches.
+ */
+export function isMeeting(value: unknown): value is Meeting {
+  if (value === null || typeof value !== "object") return false;
+  const o = value as Record<string, unknown>;
+  if (typeof o.id !== "string") return false;
+  if (typeof o.created_at !== "string") return false;
+  if (typeof o.ended_at !== "string") return false;
+  if (typeof o.duration_seconds !== "number") return false;
+  if (!MEETING_TYPES.includes(o.meeting_type as MeetingType)) return false;
+  if (typeof o.title !== "string") return false;
+  if (typeof o.transcript !== "string") return false;
+  if (typeof o.audio_path !== "string" && o.audio_path !== null) return false;
+  if (!Array.isArray(o.tags) || !o.tags.every((t) => typeof t === "string")) return false;
+  if (o.output === null || typeof o.output !== "object") return false;
+  const out = o.output as Record<string, unknown>;
+  if (typeof out.summary_short !== "string") return false;
+  if (!Array.isArray(out.topics)) return false;
+  if (!Array.isArray(out.decisions)) return false;
+  if (!Array.isArray(out.action_items)) return false;
+  if (out.follow_up_draft === null || typeof out.follow_up_draft !== "object") return false;
+  if (!Array.isArray(out.participants_mentioned)) return false;
+  if (typeof out.template_used !== "string") return false;
+  if (typeof out.model_used !== "string") return false;
+  if (typeof out.generated_at !== "string") return false;
+  return true;
+}
+
+/**
+ * Runtime check for a WhisperX segment object from JSON.
+ */
+export function isDiarizedSegment(value: unknown): value is DiarizedSegment {
+  if (value === null || typeof value !== "object") return false;
+  const o = value as Record<string, unknown>;
+  return (
+    typeof o.speaker === "string" &&
+    typeof o.start === "number" &&
+    typeof o.end === "number" &&
+    typeof o.text === "string"
+  );
+}
