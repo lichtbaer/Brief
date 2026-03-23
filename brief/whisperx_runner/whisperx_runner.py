@@ -34,7 +34,7 @@ def main():
 
     try:
         progress("Loading WhisperX model…")
-        model = whisperx.load_model(model_size, device="cpu", language=language)
+        model = whisperx.load_model(model_size, device="cpu", compute_type="int8", language=language)
         progress("Loading audio…")
         audio = whisperx.load_audio(wav_path)
         progress("Transcribing…")
