@@ -2,6 +2,15 @@
   "app": {
     "title": "Brief"
   },
+  "recovery": {
+    "title": "Unterbrochene Aufnahme gefunden",
+    "question": "Was soll damit passieren?",
+    "size_inline": "({{mb}} MB)",
+    "transcribe": "Jetzt transkribieren",
+    "keep": "Datei behalten",
+    "discard": "Löschen",
+    "transcribing": "Wird transkribiert…"
+  },
   "nav": {
     "record": "Aufnahme",
     "history": "Verlauf",

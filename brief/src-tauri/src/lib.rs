@@ -6,6 +6,7 @@ mod audio;
 mod crypto_key;
 mod export;
 mod memory;
+mod recovery;
 mod storage;
 mod summarize;
 mod templates;
@@ -14,8 +15,8 @@ mod types;
 
 use audio::AudioRecorder;
 use base64::Engine as _;
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use storage::Storage;
 use tauri::Manager;
@@ -25,8 +26,63 @@ use types::AppSettingsSnapshot;
 /// Shared mutable state: in-memory recorders, async SQLCipher storage, and app data directory for retained audio.
 pub struct AppState {
     pub recordings: Mutex<HashMap<String, AudioRecorder>>,
+    /// Session IDs currently inside `process_meeting` / `recover_orphaned_recording` (temp WAV still in use).
+    pub processing_sessions: Mutex<HashSet<String>>,
     pub storage: tokio::sync::Mutex<Storage>,
     pub app_data_dir: PathBuf,
+}
+
+/// Marks `session_id` as processing until dropped so orphan detection skips the temp WAV.
+struct ProcessingSessionGuard<'a> {
+    state: &'a AppState,
+    session_id: String,
+}
+
+impl<'a> ProcessingSessionGuard<'a> {
+    fn new(state: &'a AppState, session_id: String) -> Result<Self, String> {
+        state
+            .processing_sessions
+            .lock()
+            .map_err(|_| "Interner Zustand gesperrt".to_string())?
+            .insert(session_id.clone());
+        Ok(ProcessingSessionGuard { state, session_id })
+    }
+}
+
+impl Drop for ProcessingSessionGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut g) = self.state.processing_sessions.lock() {
+            g.remove(&self.session_id);
+        }
+    }
+}
+
+/// Resolves a user-supplied path to a WAV file under the OS temp directory (no path traversal).
+fn resolve_orphan_wav_path(user_path: &Path) -> Result<PathBuf, String> {
+    if let Ok(c) = user_path.canonicalize() {
+        let temp = std::env::temp_dir()
+            .canonicalize()
+            .map_err(|e| e.to_string())?;
+        if c.starts_with(&temp) {
+            return Ok(c);
+        }
+        return Err("Ungültiger Audiopfad".to_string());
+    }
+    let file_name = user_path
+        .file_name()
+        .ok_or_else(|| "Ungültiger Audiopfad".to_string())?;
+    let temp = std::env::temp_dir();
+    let candidate = temp.join(file_name);
+    let temp_canon = temp.canonicalize().map_err(|e| e.to_string())?;
+    let parent_canon = candidate
+        .parent()
+        .ok_or_else(|| "Ungültiger Audiopfad".to_string())?
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    if parent_canon != temp_canon {
+        return Err("Ungültiger Audiopfad".to_string());
+    }
+    Ok(candidate)
 }
 
 /// Starts microphone capture for a new session; returns a UUID `session_id` stored in `AppState.recordings`.
@@ -61,7 +117,7 @@ async fn stop_recording(
         .remove(&session_id)
         .ok_or_else(|| "Session nicht gefunden".to_string())?;
 
-    let audio_path = std::env::temp_dir().join(format!("{session_id}.wav"));
+    let audio_path = std::env::temp_dir().join(format!("brief_{session_id}.wav"));
 
     recorder.stop_and_save(&audio_path)?;
 
@@ -74,8 +130,23 @@ async fn process_meeting(
     session_id: String,
     audio_path: String,
     meeting_type: String,
+    title_override: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
+    process_meeting_inner(session_id, audio_path, meeting_type, title_override, &state).await
+}
+
+/// Shared pipeline for normal recording and crash recovery (`recover_orphaned_recording`).
+/// When `title_override` is set, it becomes the meeting title instead of a summary-derived default.
+async fn process_meeting_inner(
+    session_id: String,
+    audio_path: String,
+    meeting_type: String,
+    title_override: Option<String>,
+    state: &AppState,
+) -> Result<String, String> {
+    let _guard = ProcessingSessionGuard::new(state, session_id.clone())?;
+
     let (whisperx_timeout_secs, meeting_language) = {
         let storage = state.storage.lock().await;
         let timeout = storage
@@ -158,7 +229,11 @@ async fn process_meeting(
 
     let now = chrono::Utc::now().to_rfc3339();
 
-    let mut title: String = output.summary_short.chars().take(60).collect();
+    let mut title: String = title_override
+        .as_ref()
+        .map(|t| t.trim().to_string())
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| output.summary_short.chars().take(60).collect());
     if title.trim().is_empty() {
         title = format!("Meeting {}", session_id.chars().take(8).collect::<String>());
     }
@@ -213,6 +288,75 @@ async fn process_meeting(
     }
 
     Ok(serde_json::to_string(&meeting).map_err(|e| e.to_string())?)
+}
+
+/// Returns metadata for at most one orphaned temp WAV (newest first) for the recovery banner.
+#[tauri::command]
+async fn check_orphaned_recordings(
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let active: HashSet<String> = state
+        .recordings
+        .lock()
+        .map_err(|_| "Interner Zustand gesperrt".to_string())?
+        .keys()
+        .cloned()
+        .collect();
+    let processing: HashSet<String> = state
+        .processing_sessions
+        .lock()
+        .map_err(|_| "Interner Zustand gesperrt".to_string())?
+        .clone();
+
+    let mut paths = recovery::find_orphaned_wav_files(&std::env::temp_dir(), &active, &processing);
+    if paths.is_empty() {
+        return Ok(vec![]);
+    }
+    paths.truncate(1);
+    let path = paths.into_iter().next().unwrap();
+    let metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+    let size_mb = metadata.len() as f64 / 1_048_576.0;
+    let filename = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    Ok(vec![serde_json::json!({
+        "path": path.to_string_lossy(),
+        "filename": filename,
+        "size_mb": format!("{:.1}", size_mb),
+    })])
+}
+
+/// Transcribes an orphaned temp WAV and saves a new meeting (`consulting`, recovery title).
+#[tauri::command]
+async fn recover_orphaned_recording(
+    audio_path: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let path = PathBuf::from(&audio_path);
+    let canonical = resolve_orphan_wav_path(&path)?;
+    if !canonical.is_file() {
+        return Err("Audiodatei nicht gefunden".to_string());
+    }
+    let new_id = uuid::Uuid::new_v4().to_string();
+    let date_str = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let title = format!("Unterbrochenes Meeting {}", date_str);
+    process_meeting_inner(
+        new_id,
+        canonical.to_string_lossy().to_string(),
+        "consulting".to_string(),
+        Some(title),
+        &state,
+    )
+    .await
+}
+
+/// Deletes an orphaned temp WAV after explicit user confirmation (never silent).
+#[tauri::command]
+async fn discard_orphaned_recording(audio_path: String) -> Result<(), String> {
+    let path = PathBuf::from(&audio_path);
+    let canonical = resolve_orphan_wav_path(&path)?;
+    std::fs::remove_file(&canonical).map_err(|e| e.to_string())
 }
 
 /// Loads a meeting by id from the database or returns an error string if not found.
@@ -536,6 +680,7 @@ pub fn run() {
 
             app.manage(AppState {
                 recordings: Mutex::new(HashMap::new()),
+                processing_sessions: Mutex::new(HashSet::new()),
                 storage: tokio::sync::Mutex::new(storage),
                 app_data_dir: app_data.clone(),
             });
@@ -546,6 +691,9 @@ pub fn run() {
             start_recording,
             stop_recording,
             process_meeting,
+            check_orphaned_recordings,
+            recover_orphaned_recording,
+            discard_orphaned_recording,
             get_meeting,
             export_markdown,
             export_pdf,
