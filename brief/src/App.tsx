@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { LowRamOnboardingBanner } from "./components/LowRamOnboardingBanner";
 import { OnboardingWizard } from "./components/OnboardingWizard";
+import { RecoveryBanner } from "./components/RecoveryBanner";
 import i18n from "./i18n";
-import type { AppSettingsSnapshot, Meeting } from "./types";
+import type { AppSettingsSnapshot, Meeting, OrphanedRecording } from "./types";
 import { HistoryView } from "./views/HistoryView";
 import { OutputView } from "./views/OutputView";
 import { RecordingView } from "./views/RecordingView";
@@ -21,6 +22,8 @@ export default function App() {
   const [currentMeeting, setCurrentMeeting] = useState<Meeting | null>(null);
   const [settingsSnapshot, setSettingsSnapshot] =
     useState<AppSettingsSnapshot | null>(null);
+  const [orphanRecording, setOrphanRecording] =
+    useState<OrphanedRecording | null>(null);
 
   const handleMeetingDone = (meeting: Meeting) => {
     setCurrentMeeting(meeting);
@@ -56,6 +59,21 @@ export default function App() {
         setOnboardingComplete(true);
       });
   }, []);
+
+  useEffect(() => {
+    if (onboardingComplete !== true) {
+      return;
+    }
+    void invoke<OrphanedRecording[]>("check_orphaned_recordings")
+      .then((rows) => {
+        if (rows.length > 0) {
+          setOrphanRecording(rows[0]);
+        }
+      })
+      .catch(() => {
+        setOrphanRecording(null);
+      });
+  }, [onboardingComplete]);
 
   const handleLowRamDismissed = () => {
     setSettingsSnapshot((prev) =>
@@ -117,6 +135,16 @@ export default function App() {
       </nav>
 
       <main className="main-content">
+        {orphanRecording && (
+          <RecoveryBanner
+            recording={orphanRecording}
+            onRecovered={(meeting) => {
+              setOrphanRecording(null);
+              handleMeetingDone(meeting);
+            }}
+            onDismissBanner={() => setOrphanRecording(null)}
+          />
+        )}
         {settingsSnapshot?.showLowRamOnboarding === true && (
           <LowRamOnboardingBanner
             recommendedModel={settingsSnapshot.recommendedModel}

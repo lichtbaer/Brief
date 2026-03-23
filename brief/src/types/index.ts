@@ -26,6 +26,14 @@ export interface AppSettingsSnapshot {
   showLowRamOnboarding: boolean;
 }
 
+/** One entry from `check_orphaned_recordings` (temp WAV metadata). */
+export interface OrphanedRecording {
+  path: string;
+  filename: string;
+  /** Formatted megabytes, e.g. "4.2". */
+  size_mb: string;
+}
+
 export interface ActionItem {
   description: string;
   owner: string | null;

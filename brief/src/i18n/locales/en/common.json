@@ -2,6 +2,15 @@
   "app": {
     "title": "Brief"
   },
+  "recovery": {
+    "title": "Interrupted recording found",
+    "question": "What should happen to this file?",
+    "size_inline": "({{mb}} MB)",
+    "transcribe": "Transcribe now",
+    "keep": "Keep file",
+    "discard": "Delete",
+    "transcribing": "Transcribing…"
+  },
   "nav": {
     "record": "Recording",
     "history": "History",
