@@ -45,12 +45,5 @@
         "depends": ["libwebkit2gtk-4.1-0", "libssl3"]
       }
     }
-  },
-  "plugins": {
-    "os": {},
-    "dialog": {},
-    "fs": {
-      "scope": ["$DOWNLOAD/**", "$DOCUMENT/**", "$DESKTOP/**"]
-    }
   }
 }
