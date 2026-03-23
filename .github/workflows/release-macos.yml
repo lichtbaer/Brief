@@ -1,0 +1,78 @@
+# Release macOS — code signing + notarization (SMA-373)
+#
+# Required GitHub Actions secrets (repository → Settings → Secrets and variables → Actions):
+#
+# | Secret                      | Description |
+# |----------------------------|-------------|
+# | APPLE_CERTIFICATE          | Developer ID Application certificate as base64-encoded .p12 (export from Keychain Access) |
+# | APPLE_CERTIFICATE_PASSWORD | Password set when exporting the .p12 |
+# | KEYCHAIN_PASSWORD          | Any strong password for the ephemeral CI keychain |
+# | APPLE_SIGNING_IDENTITY     | Full name from `security find-identity -v -p codesigning`, e.g. "Developer ID Application: Name (TEAMID)" |
+# | APPLE_ID                   | Apple ID email (App Store Connect) |
+# | APPLE_PASSWORD             | App-specific password from appleid.apple.com (not your Apple ID password) |
+# | APPLE_TEAM_ID              | 10-character Team ID from App Store Connect → Membership |
+#
+# Checklist: [ ] APPLE_CERTIFICATE [ ] APPLE_CERTIFICATE_PASSWORD [ ] KEYCHAIN_PASSWORD
+#            [ ] APPLE_SIGNING_IDENTITY [ ] APPLE_ID [ ] APPLE_PASSWORD [ ] APPLE_TEAM_ID
+
+name: Release macOS
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import signing certificate
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$APPLE_CERTIFICATE" | base64 -d > certificate.p12
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security import certificate.p12 -k build.keychain \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list \
+            -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          rm -f certificate.p12
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: brief/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: brief
+
+      - name: Build, sign and notarize
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run tauri build
+        working-directory: brief
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: brief-macos-dmg
+          path: brief/src-tauri/target/release/bundle/dmg/*.dmg
+
+      - name: Remove CI keychain
+        if: always()
+        run: security delete-keychain build.keychain 2>/dev/null || true
