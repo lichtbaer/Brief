@@ -1,0 +1,2 @@
+Models are downloaded during setup.
+Run: cd whisperx_runner && bash setup.sh

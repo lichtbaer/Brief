@@ -18,7 +18,8 @@ whisperx_runner/.venv/*
 whisperx_runner/venv/*
 whisperx_runner/whisperx_runner.egg-info/
 whisperx_runner/build/*
-whisperx_runner/models/
+whisperx_runner/models/*
+!whisperx_runner/models/README
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
