@@ -3,10 +3,11 @@
 
 Expected argv: ``wav_path`` [, ``language`` [, ``model_size``]]. Progress logs go to stderr so Rust can parse stdout only.
 """
-import sys
 import json
-import whisperx
-from whisperx.diarize import DiarizationPipeline
+import os
+import sys
+
+from payload import build_success_payload
 
 
 def main():
@@ -18,6 +19,14 @@ def main():
     wav_path = sys.argv[1]
     language = sys.argv[2] if len(sys.argv) > 2 else "de"
     model_size = sys.argv[3] if len(sys.argv) > 3 else "base"
+
+    if not os.path.isfile(wav_path):
+        print(json.dumps({"error": f"Datei nicht gefunden: {wav_path}"}))
+        sys.exit(1)
+
+    # Heavy imports only after argv validation so unit tests and missing-file paths fail fast.
+    import whisperx
+    from whisperx.diarize import DiarizationPipeline
 
     def progress(msg: str) -> None:
         """Write a human-readable status line to stderr (does not pollute JSON stdout)."""
@@ -41,18 +50,7 @@ def main():
         result = whisperx.assign_word_speakers(diarize_segments, result)
         progress("Done.")
 
-        output = {
-            "segments": [
-                {
-                    "speaker": seg.get("speaker", "SPEAKER_00"),
-                    "start": seg["start"],
-                    "end": seg["end"],
-                    "text": seg["text"].strip(),
-                }
-                for seg in result["segments"]
-            ],
-            "language": language,
-        }
+        output = build_success_payload(result["segments"], language)
         print(json.dumps(output, ensure_ascii=False))
 
     except Exception as e:

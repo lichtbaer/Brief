@@ -226,3 +226,20 @@ impl Transcriber {
             .unwrap_or(false)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Transcriber;
+
+    #[test]
+    fn check_available_false_when_python_binary_missing() {
+        let t = Transcriber {
+            python_bin: "/nonexistent/brief_test_python_9f3a2c1d".to_string(),
+            runner_script: "/dev/null".to_string(),
+            model_size: "base".to_string(),
+            language: "de".to_string(),
+            timeout_secs: 1,
+        };
+        assert!(!t.check_available());
+    }
+}
