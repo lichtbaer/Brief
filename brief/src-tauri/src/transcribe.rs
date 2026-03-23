@@ -92,7 +92,8 @@ impl Transcriber {
     /// Builds a transcriber: resolves runner path (`BRIEF_WHISPERX_RUNNER` or dev path next to crate), prefers `.venv` Python when present.
     pub fn new(python_bin: Option<String>, runner_script: Option<String>) -> Self {
         let runner_script = runner_script.unwrap_or_else(default_runner_script);
-        let python_bin = python_bin.unwrap_or_else(|| default_python_bin_for_runner(&runner_script));
+        let python_bin =
+            python_bin.unwrap_or_else(|| default_python_bin_for_runner(&runner_script));
         Transcriber {
             python_bin,
             runner_script,
@@ -108,11 +109,23 @@ impl Transcriber {
         self
     }
 
+    /// Sets the WhisperX `language` argument (ISO 639-1 code, e.g. `de`, `en`). Loaded from `meeting_language` in app settings, not from UI locale.
+    pub fn with_language(mut self, language: impl Into<String>) -> Self {
+        let s = language.into();
+        let trimmed = s.trim();
+        self.language = if trimmed.is_empty() {
+            "de".to_string()
+        } else {
+            trimmed.to_string()
+        };
+        self
+    }
+
     /// Runs the WhisperX subprocess on `audio_path`, reads stdout as JSON, and returns segments or a stable timeout token ([`TRANSCRIPTION_TIMEOUT_ERROR`]).
     pub fn transcribe(&self, audio_path: &Path) -> Result<WhisperXOutput, String> {
-        let audio_str = audio_path.to_str().ok_or_else(|| {
-            "Audio-Pfad ist nicht als UTF-8 darstellbar".to_string()
-        })?;
+        let audio_str = audio_path
+            .to_str()
+            .ok_or_else(|| "Audio-Pfad ist nicht als UTF-8 darstellbar".to_string())?;
 
         let mut child = Command::new(&self.python_bin)
             .arg(&self.runner_script)
@@ -186,10 +199,7 @@ impl Transcriber {
                     }
 
                     return serde_json::from_str::<WhisperXOutput>(&stdout).map_err(|e| {
-                        format!(
-                            "WhisperX-Output nicht parsbar: {} — Output: {}",
-                            e, stdout
-                        )
+                        format!("WhisperX-Output nicht parsbar: {} — Output: {}", e, stdout)
                     });
                 }
                 Ok(None) => {

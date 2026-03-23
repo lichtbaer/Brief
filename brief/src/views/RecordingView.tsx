@@ -20,6 +20,7 @@ function formatTime(seconds: number): string {
 /**
  * Main recording flow: idle → recording → WhisperX/Ollama processing → done or error.
  * Invokes Tauri `start_recording`, `stop_recording`, and `process_meeting`; shows timers and transcript preview when inline.
+ * Meeting language (WhisperX) is chosen before recording and persisted as `meeting_language` in settings, separate from UI language.
  *
  * @param props.onMeetingDone — optional callback when processing finishes (parent-owned navigation).
  */
@@ -30,9 +31,20 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [meeting, setMeeting] = useState<Meeting | null>(null);
   const [meetingType, setMeetingType] = useState<MeetingType>("consulting");
+  const [meetingLanguage, setMeetingLanguage] = useState<string>("de");
   const [elapsed, setElapsed] = useState(0);
   const [processingElapsed, setProcessingElapsed] = useState(0);
   const [processingStep, setProcessingStep] = useState<ProcessingStep | null>(null);
+
+  // Load persisted meeting language (WhisperX) — independent of UI locale.
+  useEffect(() => {
+    void invoke<string>("get_all_settings")
+      .then((r) => {
+        const raw = JSON.parse(r) as Record<string, string>;
+        setMeetingLanguage(raw.meeting_language ?? "de");
+      })
+      .catch(() => {});
+  }, []);
 
   // Elapsed timer during recording
   useEffect(() => {
@@ -174,21 +186,42 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
 
       {/* Meeting type selector — only visible when idle */}
       {status === "idle" && (
-        <div className="form-group">
-          <label className="form-label" htmlFor="meeting-type-select">
-            {t("recording.meeting_type_label")}
-          </label>
-          <select
-            id="meeting-type-select"
-            className="form-select"
-            value={meetingType}
-            onChange={(e) => setMeetingType(e.target.value as MeetingType)}
-          >
-            <option value="consulting">{t("meeting_types.consulting")}</option>
-            <option value="legal">{t("meeting_types.legal")}</option>
-            <option value="internal">{t("meeting_types.internal")}</option>
-          </select>
-        </div>
+        <>
+          <div className="form-group">
+            <label className="form-label" htmlFor="meeting-type-select">
+              {t("recording.meeting_type_label")}
+            </label>
+            <select
+              id="meeting-type-select"
+              className="form-select"
+              value={meetingType}
+              onChange={(e) => setMeetingType(e.target.value as MeetingType)}
+            >
+              <option value="consulting">{t("meeting_types.consulting")}</option>
+              <option value="legal">{t("meeting_types.legal")}</option>
+              <option value="internal">{t("meeting_types.internal")}</option>
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label" htmlFor="recording-meeting-language">
+              {t("settings.meeting_language")}
+            </label>
+            <select
+              id="recording-meeting-language"
+              className="form-select"
+              value={meetingLanguage}
+              onChange={(e) => {
+                const v = e.target.value;
+                setMeetingLanguage(v);
+                void invoke("update_setting", { key: "meeting_language", value: v });
+              }}
+              style={{ maxWidth: "14rem" }}
+            >
+              <option value="de">Deutsch</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+        </>
       )}
 
       {/* Recording indicator with elapsed timer */}
