@@ -37,15 +37,16 @@ pub struct Summarizer {
 }
 
 impl Summarizer {
-    pub fn new(ollama_url: Option<String>, model: Option<String>) -> Self {
-        Summarizer {
-            client: Client::builder()
-                .timeout(std::time::Duration::from_secs(300))
-                .build()
-                .expect("reqwest client"),
+    pub fn new(ollama_url: Option<String>, model: Option<String>) -> Result<Self, String> {
+        let client = Client::builder()
+            .timeout(std::time::Duration::from_secs(300))
+            .build()
+            .map_err(|e| format!("HTTP-Client-Fehler: {}", e))?;
+        Ok(Summarizer {
+            client,
             ollama_url: ollama_url.unwrap_or_else(|| DEFAULT_OLLAMA_URL.to_string()),
             model: model.unwrap_or_else(|| DEFAULT_LLM_MODEL.to_string()),
-        }
+        })
     }
 
     pub async fn check_available(&self) -> bool {

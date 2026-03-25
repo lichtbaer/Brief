@@ -35,6 +35,21 @@ impl AudioRecorder {
     /// Opens the default input device, spawns the CPAL stream on a dedicated thread (Linux `Stream` is not `Send`),
     /// and starts filling the mono `f32` buffer until [`AudioRecorder::stop_and_save`] signals stop.
     pub fn start(&mut self) -> Result<(), String> {
+        // Macro to avoid repeating the identical build_input_stream boilerplate for each SampleFormat.
+        // Only the concrete sample type `$T` differs between arms; everything else is identical.
+        macro_rules! build_stream_for_format {
+            ($device:expr, $config:expr, $buf:expr, $channels:expr, $err_fn:expr, $T:ty) => {{
+                let buf = Arc::clone(&$buf);
+                $device.build_input_stream(
+                    $config,
+                    move |data: &[$T], _: &_| {
+                        push_mono_frames(data, $channels, &buf);
+                    },
+                    $err_fn,
+                    None,
+                )
+            }};
+        }
         let host = cpal::default_host();
         let device = host
             .default_input_device()
@@ -55,179 +70,27 @@ impl AudioRecorder {
         let join = std::thread::spawn(move || {
             let err_fn = |err: cpal::StreamError| eprintln!("Audio-Fehler: {err}");
 
-            let stream = match sample_format {
-                cpal::SampleFormat::I8 => match {
-                    let buf = Arc::clone(&buffer);
-                    device.build_input_stream(
-                        &stream_config,
-                        move |data: &[i8], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
-                    )
-                } {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("Stream konnte nicht erstellt werden: {e}");
-                        return;
-                    }
-                },
-                cpal::SampleFormat::I16 => match {
-                    let buf = Arc::clone(&buffer);
-                    device.build_input_stream(
-                        &stream_config,
-                        move |data: &[i16], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
-                    )
-                } {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("Stream konnte nicht erstellt werden: {e}");
-                        return;
-                    }
-                },
-                cpal::SampleFormat::I32 => match {
-                    let buf = Arc::clone(&buffer);
-                    device.build_input_stream(
-                        &stream_config,
-                        move |data: &[i32], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
-                    )
-                } {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("Stream konnte nicht erstellt werden: {e}");
-                        return;
-                    }
-                },
-                cpal::SampleFormat::I64 => match {
-                    let buf = Arc::clone(&buffer);
-                    device.build_input_stream(
-                        &stream_config,
-                        move |data: &[i64], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
-                    )
-                } {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("Stream konnte nicht erstellt werden: {e}");
-                        return;
-                    }
-                },
-                cpal::SampleFormat::U8 => match {
-                    let buf = Arc::clone(&buffer);
-                    device.build_input_stream(
-                        &stream_config,
-                        move |data: &[u8], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
-                    )
-                } {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("Stream konnte nicht erstellt werden: {e}");
-                        return;
-                    }
-                },
-                cpal::SampleFormat::U16 => match {
-                    let buf = Arc::clone(&buffer);
-                    device.build_input_stream(
-                        &stream_config,
-                        move |data: &[u16], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
-                    )
-                } {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("Stream konnte nicht erstellt werden: {e}");
-                        return;
-                    }
-                },
-                cpal::SampleFormat::U32 => match {
-                    let buf = Arc::clone(&buffer);
-                    device.build_input_stream(
-                        &stream_config,
-                        move |data: &[u32], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
-                    )
-                } {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("Stream konnte nicht erstellt werden: {e}");
-                        return;
-                    }
-                },
-                cpal::SampleFormat::U64 => match {
-                    let buf = Arc::clone(&buffer);
-                    device.build_input_stream(
-                        &stream_config,
-                        move |data: &[u64], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
-                    )
-                } {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("Stream konnte nicht erstellt werden: {e}");
-                        return;
-                    }
-                },
-                cpal::SampleFormat::F32 => match {
-                    let buf = Arc::clone(&buffer);
-                    device.build_input_stream(
-                        &stream_config,
-                        move |data: &[f32], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
-                    )
-                } {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("Stream konnte nicht erstellt werden: {e}");
-                        return;
-                    }
-                },
-                cpal::SampleFormat::F64 => match {
-                    let buf = Arc::clone(&buffer);
-                    device.build_input_stream(
-                        &stream_config,
-                        move |data: &[f64], _: &_| {
-                            push_mono_frames(data, channels, &buf);
-                        },
-                        err_fn,
-                        None,
-                    )
-                } {
-                    Ok(s) => s,
-                    Err(e) => {
-                        eprintln!("Stream konnte nicht erstellt werden: {e}");
-                        return;
-                    }
-                },
+            let stream_result = match sample_format {
+                cpal::SampleFormat::I8 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, i8),
+                cpal::SampleFormat::I16 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, i16),
+                cpal::SampleFormat::I32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, i32),
+                cpal::SampleFormat::I64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, i64),
+                cpal::SampleFormat::U8 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, u8),
+                cpal::SampleFormat::U16 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, u16),
+                cpal::SampleFormat::U32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, u32),
+                cpal::SampleFormat::U64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, u64),
+                cpal::SampleFormat::F32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, f32),
+                cpal::SampleFormat::F64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, f64),
                 f => {
                     eprintln!("Nicht unterstütztes Audio-Sample-Format: {f}");
+                    return;
+                }
+            };
+
+            let stream = match stream_result {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Stream konnte nicht erstellt werden: {e}");
                     return;
                 }
             };

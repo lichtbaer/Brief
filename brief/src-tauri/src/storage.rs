@@ -62,25 +62,32 @@ impl Storage {
         .map_err(|e| format!("Migration fehlgeschlagen: {}", e))?;
 
         // Standalone FTS5 (no content=): external-content sync did not populate the inverted index
-        // reliably with SQLCipher; we backfill from `meetings` on startup and upsert on save.
-        sqlx::query("DROP TABLE IF EXISTS meetings_fts")
+        // reliably with SQLCipher; we create the table once and backfill on first creation only.
+        // Checking sqlite_master avoids a DROP + full rebuild on every startup (O(n) for large DBs).
+        let fts_exists: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='meetings_fts'",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("FTS-Check fehlgeschlagen: {}", e))?;
+
+        if fts_exists == 0 {
+            sqlx::query(
+                "CREATE VIRTUAL TABLE meetings_fts
+                 USING fts5(id UNINDEXED, title, transcript)",
+            )
             .execute(&self.pool)
             .await
             .map_err(|e| format!("FTS-Migration fehlgeschlagen: {}", e))?;
-        sqlx::query(
-            "CREATE VIRTUAL TABLE meetings_fts
-             USING fts5(id UNINDEXED, title, transcript)",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("FTS-Migration fehlgeschlagen: {}", e))?;
-        sqlx::query(
-            "INSERT INTO meetings_fts(rowid, id, title, transcript)
-             SELECT rowid, id, title, transcript FROM meetings WHERE deleted_at IS NULL",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("FTS-Backfill fehlgeschlagen: {}", e))?;
+
+            sqlx::query(
+                "INSERT INTO meetings_fts(rowid, id, title, transcript)
+                 SELECT rowid, id, title, transcript FROM meetings WHERE deleted_at IS NULL",
+            )
+            .execute(&self.pool)
+            .await
+            .map_err(|e| format!("FTS-Backfill fehlgeschlagen: {}", e))?;
+        }
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS settings (
@@ -225,9 +232,21 @@ impl Storage {
     }
 
     /// Inserts a full meeting row and updates the FTS5 shadow table for title/transcript search.
+    /// Both INSERTs run inside a single transaction so the DB never ends up with a meetings row
+    /// that is missing from the FTS index (or vice versa).
     pub async fn save_meeting(&self, meeting: &Meeting) -> Result<(), String> {
         let output_json = serde_json::to_string(&meeting.output).map_err(|e| e.to_string())?;
         let tags_json = serde_json::to_string(&meeting.tags).map_err(|e| e.to_string())?;
+
+        let mut conn = self
+            .pool
+            .acquire()
+            .await
+            .map_err(|e| format!("DB-Verbindung fehlgeschlagen: {}", e))?;
+        let mut tx = conn
+            .begin()
+            .await
+            .map_err(|e| format!("Transaktion fehlgeschlagen: {}", e))?;
 
         sqlx::query(
             "INSERT INTO meetings (id, created_at, ended_at, duration_seconds, meeting_type,
@@ -244,12 +263,12 @@ impl Storage {
         .bind(&output_json)
         .bind(&meeting.audio_path)
         .bind(&tags_json)
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await
         .map_err(|e| format!("Meeting speichern fehlgeschlagen: {}", e))?;
 
         let rowid: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *tx)
             .await
             .map_err(|e| format!("rowid: {}", e))?;
 
@@ -258,9 +277,13 @@ impl Storage {
             .bind(&meeting.id)
             .bind(&meeting.title)
             .bind(&meeting.transcript)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| format!("FTS-Index fehlgeschlagen: {}", e))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| format!("Commit fehlgeschlagen: {}", e))?;
 
         Ok(())
     }

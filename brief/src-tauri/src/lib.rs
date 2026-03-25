@@ -198,7 +198,7 @@ async fn process_meeting_inner(
         storage.get_summarizer_config().await?
     };
 
-    let summarizer = summarize::Summarizer::new(Some(ollama_url), Some(llm_model));
+    let summarizer = summarize::Summarizer::new(Some(ollama_url), Some(llm_model))?;
     let output = if summarizer.check_available().await {
         let system_prompt = templates::get_system_prompt(&meeting_type);
         summarizer
@@ -487,7 +487,7 @@ async fn check_whisperx() -> Result<bool, String> {
 /// Returns whether Ollama responds on localhost and the RAM-based recommended model id.
 #[tauri::command]
 async fn check_ollama() -> Result<serde_json::Value, String> {
-    let summarizer = summarize::Summarizer::new(None, None);
+    let summarizer = summarize::Summarizer::new(None, None)?;
     let running = summarizer.check_available().await;
     Ok(serde_json::json!({
         "running": running,
