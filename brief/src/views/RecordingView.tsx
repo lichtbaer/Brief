@@ -46,35 +46,38 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
       .catch(() => {});
   }, []);
 
-  // Elapsed timer during recording
+  // Unified timer effect: manages recording elapsed, processing elapsed, and
+  // processing step hint in a single interval.  Consolidating avoids multiple
+  // independent intervals that could leak if one cleanup fails.
   useEffect(() => {
-    if (status !== "recording") {
+    if (status === "recording") {
       setElapsed(0);
-      return;
+      const id = setInterval(() => setElapsed((s) => s + 1), 1000);
+      return () => clearInterval(id);
     }
-    const id = setInterval(() => setElapsed((s) => s + 1), 1000);
-    return () => clearInterval(id);
-  }, [status]);
 
-  // Elapsed timer during WhisperX + summarization
-  useEffect(() => {
-    if (status !== "processing") {
+    // Reset recording timer when not recording.
+    setElapsed(0);
+
+    if (status === "processing") {
       setProcessingElapsed(0);
-      return;
-    }
-    const id = setInterval(() => setProcessingElapsed((s) => s + 1), 1000);
-    return () => clearInterval(id);
-  }, [status]);
+      setProcessingStep("transcribing");
 
-  // Processing step hints
-  useEffect(() => {
-    if (status !== "processing") {
-      setProcessingStep(null);
-      return;
+      const id = setInterval(() => {
+        setProcessingElapsed((s) => {
+          // Switch the step hint once processing exceeds 8 seconds (heuristic:
+          // WhisperX typically finishes within this window on modern hardware).
+          if (s + 1 >= 8) setProcessingStep("summarizing");
+          return s + 1;
+        });
+      }, 1000);
+
+      return () => clearInterval(id);
     }
-    setProcessingStep("transcribing");
-    const timer = setTimeout(() => setProcessingStep("summarizing"), 8000);
-    return () => clearTimeout(timer);
+
+    // Reset processing state when neither recording nor processing.
+    setProcessingElapsed(0);
+    setProcessingStep(null);
   }, [status]);
 
   const reset = () => {

@@ -4,6 +4,7 @@
 
 mod audio;
 mod crypto_key;
+mod error;
 mod export;
 mod memory;
 mod recovery;
@@ -15,6 +16,7 @@ mod types;
 
 use audio::AudioRecorder;
 use base64::Engine as _;
+use error::AppError;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -43,7 +45,7 @@ impl<'a> ProcessingSessionGuard<'a> {
         state
             .processing_sessions
             .lock()
-            .map_err(|_| "Interner Zustand gesperrt".to_string())?
+            .map_err(|_| AppError::StateLocked)?
             .insert(session_id.clone());
         Ok(ProcessingSessionGuard { state, session_id })
     }
@@ -62,25 +64,27 @@ fn resolve_orphan_wav_path(user_path: &Path) -> Result<PathBuf, String> {
     if let Ok(c) = user_path.canonicalize() {
         let temp = std::env::temp_dir()
             .canonicalize()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| AppError::IoError(e.to_string()))?;
         if c.starts_with(&temp) {
             return Ok(c);
         }
-        return Err("Ungültiger Audiopfad".to_string());
+        return Err(AppError::InvalidAudioPath.into());
     }
     let file_name = user_path
         .file_name()
-        .ok_or_else(|| "Ungültiger Audiopfad".to_string())?;
+        .ok_or(AppError::InvalidAudioPath)?;
     let temp = std::env::temp_dir();
     let candidate = temp.join(file_name);
-    let temp_canon = temp.canonicalize().map_err(|e| e.to_string())?;
+    let temp_canon = temp
+        .canonicalize()
+        .map_err(|e| AppError::IoError(e.to_string()))?;
     let parent_canon = candidate
         .parent()
-        .ok_or_else(|| "Ungültiger Audiopfad".to_string())?
+        .ok_or(AppError::InvalidAudioPath)?
         .canonicalize()
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| AppError::IoError(e.to_string()))?;
     if parent_canon != temp_canon {
-        return Err("Ungültiger Audiopfad".to_string());
+        return Err(AppError::InvalidAudioPath.into());
     }
     Ok(candidate)
 }
@@ -98,7 +102,7 @@ async fn start_recording(
     state
         .recordings
         .lock()
-        .map_err(|_| "Interner Zustand gesperrt".to_string())?
+        .map_err(|_| AppError::StateLocked)?
         .insert(session_id.clone(), recorder);
 
     Ok(session_id)
@@ -113,9 +117,9 @@ async fn stop_recording(
     let mut recorder = state
         .recordings
         .lock()
-        .map_err(|_| "Interner Zustand gesperrt".to_string())?
+        .map_err(|_| AppError::StateLocked)?
         .remove(&session_id)
-        .ok_or_else(|| "Session nicht gefunden".to_string())?;
+        .ok_or(AppError::SessionNotFound(session_id.clone()))?;
 
     let audio_path = std::env::temp_dir().join(format!("brief_{session_id}.wav"));
 
@@ -172,10 +176,7 @@ async fn process_meeting_inner(
         .with_language(meeting_language);
 
     if !transcriber.check_available() {
-        return Err(
-            "WhisperX ist nicht verfügbar. Bitte Python-Umgebung einrichten: cd whisperx_runner && bash setup.sh"
-                .to_string(),
-        );
+        return Err(AppError::WhisperxUnavailable.into());
     }
 
     let audio_path_buf = std::path::PathBuf::from(&audio_path);
@@ -184,7 +185,7 @@ async fn process_meeting_inner(
     let result =
         tokio::task::spawn_blocking(move || transcriber.transcribe(&audio_path_for_transcribe))
             .await
-            .map_err(|e| format!("Task-Fehler: {}", e))??;
+            .map_err(|e| AppError::TaskError(e.to_string()))??;
 
     let transcript = result
         .segments
@@ -263,13 +264,13 @@ async fn process_meeting_inner(
     if retain {
         let audio_dir = state.app_data_dir.join("audio");
         std::fs::create_dir_all(&audio_dir)
-            .map_err(|e| format!("Audio-Ordner konnte nicht angelegt werden: {}", e))?;
+            .map_err(|e| AppError::IoError(format!("Failed to create audio directory: {e}")))?;
         let dest = audio_dir.join(format!("{session_id}.wav"));
         std::fs::rename(&audio_path_buf, &dest)
-            .map_err(|e| format!("Audio verschieben fehlgeschlagen: {}", e))?;
+            .map_err(|e| AppError::IoError(format!("Failed to move audio file: {e}")))?;
         meeting.audio_path = Some(
             dest.to_str()
-                .ok_or_else(|| "Ungültiger Audiopfad".to_string())?
+                .ok_or(AppError::InvalidAudioPath)?
                 .to_string(),
         );
     }
@@ -287,7 +288,7 @@ async fn process_meeting_inner(
         }
     }
 
-    Ok(serde_json::to_string(&meeting).map_err(|e| e.to_string())?)
+    Ok(serde_json::to_string(&meeting).map_err(|e| AppError::IoError(e.to_string()))?)
 }
 
 /// Returns metadata for at most one orphaned temp WAV (newest first) for the recovery banner.
@@ -298,14 +299,14 @@ async fn check_orphaned_recordings(
     let active: HashSet<String> = state
         .recordings
         .lock()
-        .map_err(|_| "Interner Zustand gesperrt".to_string())?
+        .map_err(|_| AppError::StateLocked)?
         .keys()
         .cloned()
         .collect();
     let processing: HashSet<String> = state
         .processing_sessions
         .lock()
-        .map_err(|_| "Interner Zustand gesperrt".to_string())?
+        .map_err(|_| AppError::StateLocked)?
         .clone();
 
     let mut paths = recovery::find_orphaned_wav_files(&std::env::temp_dir(), &active, &processing);
@@ -314,7 +315,7 @@ async fn check_orphaned_recordings(
     }
     paths.truncate(1);
     let path = paths.into_iter().next().unwrap();
-    let metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+    let metadata = std::fs::metadata(&path).map_err(|e| AppError::IoError(e.to_string()))?;
     let size_mb = metadata.len() as f64 / 1_048_576.0;
     let filename = path
         .file_name()
@@ -336,11 +337,11 @@ async fn recover_orphaned_recording(
     let path = PathBuf::from(&audio_path);
     let canonical = resolve_orphan_wav_path(&path)?;
     if !canonical.is_file() {
-        return Err("Audiodatei nicht gefunden".to_string());
+        return Err(AppError::AudioNotFound(audio_path).into());
     }
     let new_id = uuid::Uuid::new_v4().to_string();
     let date_str = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let title = format!("Unterbrochenes Meeting {}", date_str);
+    let title = format!("Recovered meeting {}", date_str);
     process_meeting_inner(
         new_id,
         canonical.to_string_lossy().to_string(),
@@ -356,7 +357,7 @@ async fn recover_orphaned_recording(
 async fn discard_orphaned_recording(audio_path: String) -> Result<(), String> {
     let path = PathBuf::from(&audio_path);
     let canonical = resolve_orphan_wav_path(&path)?;
-    std::fs::remove_file(&canonical).map_err(|e| e.to_string())
+    std::fs::remove_file(&canonical).map_err(|e| AppError::IoError(e.to_string()).into())
 }
 
 /// Loads a meeting by id from the database or returns an error string if not found.
@@ -366,7 +367,7 @@ async fn get_meeting(id: String, state: tauri::State<'_, AppState>) -> Result<St
     storage
         .get_meeting(&id)
         .await?
-        .ok_or_else(|| format!("Meeting {} nicht gefunden", id))
+        .ok_or_else(|| AppError::MeetingNotFound(id).into())
 }
 
 /// Export meeting as Markdown (frontend saves via system dialog).
@@ -376,9 +377,9 @@ async fn export_markdown(id: String, state: tauri::State<'_, AppState>) -> Resul
     let meeting_json = storage
         .get_meeting(&id)
         .await?
-        .ok_or_else(|| format!("Meeting {} nicht gefunden", id))?;
+        .ok_or_else(|| AppError::MeetingNotFound(id).to_string())?;
     let meeting: serde_json::Value =
-        serde_json::from_str(&meeting_json).map_err(|e| e.to_string())?;
+        serde_json::from_str(&meeting_json).map_err(|e| AppError::IoError(e.to_string()))?;
     Ok(export::generate_markdown(&meeting))
 }
 
@@ -389,9 +390,9 @@ async fn export_pdf(id: String, state: tauri::State<'_, AppState>) -> Result<Str
     let meeting_json = storage
         .get_meeting(&id)
         .await?
-        .ok_or_else(|| format!("Meeting {} nicht gefunden", id))?;
+        .ok_or_else(|| AppError::MeetingNotFound(id).to_string())?;
     let meeting: serde_json::Value =
-        serde_json::from_str(&meeting_json).map_err(|e| e.to_string())?;
+        serde_json::from_str(&meeting_json).map_err(|e| AppError::IoError(e.to_string()))?;
     let markdown = export::generate_markdown(&meeting);
     let bytes = export::generate_pdf(&markdown)?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
@@ -451,7 +452,7 @@ async fn get_app_settings_snapshot(
 async fn set_llm_model(model: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let trimmed = model.trim();
     if trimmed.is_empty() {
-        return Err("Modellname darf nicht leer sein".to_string());
+        return Err(AppError::ValidationError("Model name must not be empty".into()).into());
     }
     let storage = state.storage.lock().await;
     storage.set_setting("llm_model", trimmed).await?;
@@ -481,7 +482,7 @@ async fn get_all_settings(state: tauri::State<'_, AppState>) -> Result<String, S
 async fn check_whisperx() -> Result<bool, String> {
     tokio::task::spawn_blocking(|| transcribe::Transcriber::new(None, None).check_available())
         .await
-        .map_err(|e| format!("Task-Fehler: {}", e))
+        .map_err(|e| AppError::TaskError(e.to_string()).into())
 }
 
 /// Returns whether Ollama responds on localhost and the RAM-based recommended model id.
@@ -502,15 +503,15 @@ async fn get_audio_path(id: String, state: tauri::State<'_, AppState>) -> Result
     let meeting_json = storage
         .get_meeting(&id)
         .await?
-        .ok_or_else(|| format!("Meeting {} nicht gefunden", id))?;
+        .ok_or_else(|| AppError::MeetingNotFound(id.clone()).to_string())?;
     let meeting: serde_json::Value =
-        serde_json::from_str(&meeting_json).map_err(|e| e.to_string())?;
+        serde_json::from_str(&meeting_json).map_err(|e| AppError::IoError(e.to_string()))?;
     let Some(audio_path) = meeting["audio_path"].as_str() else {
-        return Err("Kein gespeichertes Audio für dieses Meeting".to_string());
+        return Err(AppError::AudioNotFound(id).into());
     };
     let p = std::path::Path::new(audio_path);
     if !p.is_file() {
-        return Err("Audiodatei nicht gefunden".to_string());
+        return Err(AppError::AudioNotFound(audio_path.to_string()).into());
     }
     Ok(audio_path.to_string())
 }
@@ -527,12 +528,12 @@ async fn export_audio(
         let meeting_json = storage
             .get_meeting(&id)
             .await?
-            .ok_or_else(|| format!("Meeting {} nicht gefunden", id))?;
+            .ok_or_else(|| AppError::MeetingNotFound(id.clone()).to_string())?;
         let meeting: serde_json::Value =
-            serde_json::from_str(&meeting_json).map_err(|e| e.to_string())?;
+            serde_json::from_str(&meeting_json).map_err(|e| AppError::IoError(e.to_string()))?;
         let audio_path = meeting["audio_path"]
             .as_str()
-            .ok_or_else(|| "Kein gespeichertes Audio für dieses Meeting".to_string())?;
+            .ok_or(AppError::AudioNotFound(id))?;
         let title = meeting["title"].as_str().unwrap_or("meeting").to_string();
         Ok::<_, String>((
             PathBuf::from(audio_path),
@@ -541,7 +542,7 @@ async fn export_audio(
     }?;
 
     if !src.is_file() {
-        return Err("Audiodatei nicht gefunden".to_string());
+        return Err(AppError::AudioNotFound(src.to_string_lossy().to_string()).into());
     }
 
     let Some(dest_fp) = app
@@ -551,18 +552,18 @@ async fn export_audio(
         .set_file_name(&default_name)
         .blocking_save_file()
     else {
-        return Err("cancelled".to_string());
+        return Err(AppError::Cancelled.into());
     };
 
-    let dest_pb = dest_fp.into_path().map_err(|e| e.to_string())?;
+    let dest_pb = dest_fp.into_path().map_err(|e| AppError::IoError(e.to_string()))?;
 
     std::fs::copy(&src, &dest_pb)
-        .map_err(|e| format!("Audio exportieren fehlgeschlagen: {}", e))?;
+        .map_err(|e| AppError::IoError(format!("Failed to export audio: {e}")))?;
 
     dest_pb
         .to_str()
         .map(std::string::ToString::to_string)
-        .ok_or_else(|| "Ungültiger Zielpfad".to_string())
+        .ok_or_else(|| AppError::InvalidAudioPath.into())
 }
 
 fn safe_export_stem(title: String) -> String {
@@ -611,7 +612,7 @@ async fn update_setting(
     if key == "llm_model" {
         let trimmed = value.trim();
         if trimmed.is_empty() {
-            return Err("Modellname darf nicht leer sein".to_string());
+            return Err(AppError::ValidationError("Model name must not be empty".into()).into());
         }
         let storage = state.storage.lock().await;
         storage.set_setting("llm_model", trimmed).await?;
@@ -620,11 +621,13 @@ async fn update_setting(
     }
     if key == "whisperx_timeout_secs" {
         let trimmed = value.trim();
-        let v: u64 = trimmed
-            .parse()
-            .map_err(|_| "Timeout muss eine positive Zahl (Sekunden) sein".to_string())?;
+        let v: u64 = trimmed.parse().map_err(|_| {
+            AppError::ValidationError("Timeout must be a positive number (seconds)".into())
+        })?;
         if !(60..=86400).contains(&v) {
-            return Err("Erlaubt: 60 bis 86400 Sekunden".to_string());
+            return Err(
+                AppError::ValidationError("Allowed range: 60 to 86400 seconds".into()).into(),
+            );
         }
         let storage = state.storage.lock().await;
         storage
@@ -635,7 +638,10 @@ async fn update_setting(
     if key == "meeting_language" {
         let trimmed = value.trim().to_lowercase();
         if !matches!(trimmed.as_str(), "de" | "en") {
-            return Err("Meeting-Sprache: nur \"de\" oder \"en\" erlaubt".to_string());
+            return Err(AppError::ValidationError(
+                "Meeting language: only \"de\" or \"en\" allowed".into(),
+            )
+            .into());
         }
         let storage = state.storage.lock().await;
         storage.set_setting("meeting_language", &trimmed).await?;
@@ -656,9 +662,9 @@ pub fn run() {
             let resolver = app.path();
             let app_data = resolver
                 .app_data_dir()
-                .map_err(|e| format!("App-Datenpfad: {}", e))?;
+                .map_err(|e| format!("App data path error: {}", e))?;
             std::fs::create_dir_all(&app_data)
-                .map_err(|e| format!("App-Datenverzeichnis: {}", e))?;
+                .map_err(|e| format!("Failed to create app data directory: {}", e))?;
 
             let db_path = app_data.join("brief.db");
             let key = crypto_key::get_or_create_encryption_key(&app_data)?;
@@ -667,7 +673,7 @@ pub fn run() {
                 let storage = Storage::new(
                     db_path
                         .to_str()
-                        .ok_or_else(|| "DB-Pfad ungültig".to_string())?,
+                        .ok_or_else(|| "Invalid database path".to_string())?,
                     &key,
                 )
                 .await?;

@@ -169,3 +169,188 @@ pub fn generate_pdf(markdown: &str) -> Result<Vec<u8>, String> {
 
     doc.save_to_bytes().map_err(|e| e.to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Builds a minimal meeting JSON for export tests.
+    fn sample_meeting() -> serde_json::Value {
+        json!({
+            "title": "Quarterly Review",
+            "created_at": "2025-03-01T10:00:00Z",
+            "meeting_type": "consulting",
+            "output": {
+                "summary_short": "Revenue up 20%.",
+                "topics": [
+                    { "title": "Sales", "summary": "Q1 targets exceeded." },
+                    { "title": "Hiring", "summary": "Three new engineers starting." }
+                ],
+                "decisions": [
+                    { "description": "Budget increase approved", "context": "Pending CFO sign-off" }
+                ],
+                "action_items": [
+                    {
+                        "description": "Send updated forecast",
+                        "owner": "Alice",
+                        "due_date": "2025-03-15",
+                        "priority": "high"
+                    },
+                    {
+                        "description": "Schedule follow-up",
+                        "owner": null,
+                        "due_date": null,
+                        "priority": null
+                    }
+                ],
+                "follow_up_draft": {
+                    "full_text": "Hi team,\nPlease find the notes attached.\nBest, Bob"
+                },
+                "participants_mentioned": ["Alice", "Bob"]
+            }
+        })
+    }
+
+    #[test]
+    fn markdown_contains_title_and_date() {
+        let md = generate_markdown(&sample_meeting());
+        assert!(md.starts_with("# Quarterly Review"));
+        assert!(md.contains("2025-03-01T10:00:00Z"));
+        assert!(md.contains("consulting"));
+    }
+
+    #[test]
+    fn markdown_contains_summary() {
+        let md = generate_markdown(&sample_meeting());
+        assert!(md.contains("## Zusammenfassung"));
+        assert!(md.contains("Revenue up 20%"));
+    }
+
+    #[test]
+    fn markdown_contains_topics() {
+        let md = generate_markdown(&sample_meeting());
+        assert!(md.contains("## Besprochene Themen"));
+        assert!(md.contains("### Sales"));
+        assert!(md.contains("Q1 targets exceeded."));
+        assert!(md.contains("### Hiring"));
+    }
+
+    #[test]
+    fn markdown_contains_decisions_with_context() {
+        let md = generate_markdown(&sample_meeting());
+        assert!(md.contains("## Entscheidungen"));
+        assert!(md.contains("- Budget increase approved"));
+        assert!(md.contains("Pending CFO sign-off"));
+    }
+
+    #[test]
+    fn markdown_contains_action_items_with_metadata() {
+        let md = generate_markdown(&sample_meeting());
+        assert!(md.contains("## Action Items"));
+        assert!(md.contains("**Send updated forecast**"));
+        assert!(md.contains("👤 Alice"));
+        assert!(md.contains("📅 2025-03-15"));
+        assert!(md.contains("[high]"));
+        // Second item with null fields should still appear but without metadata.
+        assert!(md.contains("**Schedule follow-up**"));
+    }
+
+    #[test]
+    fn markdown_contains_follow_up_email() {
+        let md = generate_markdown(&sample_meeting());
+        assert!(md.contains("## Follow-up E-Mail"));
+        assert!(md.contains("Hi team,"));
+    }
+
+    #[test]
+    fn markdown_contains_participants() {
+        let md = generate_markdown(&sample_meeting());
+        assert!(md.contains("## Teilnehmer"));
+        assert!(md.contains("Alice, Bob"));
+    }
+
+    #[test]
+    fn markdown_handles_empty_output_gracefully() {
+        let meeting = json!({
+            "title": "Empty",
+            "created_at": "",
+            "meeting_type": "",
+            "output": {
+                "summary_short": "",
+                "topics": [],
+                "decisions": [],
+                "action_items": [],
+                "follow_up_draft": {},
+                "participants_mentioned": []
+            }
+        });
+        let md = generate_markdown(&meeting);
+        assert!(md.starts_with("# Empty"));
+        // Should NOT contain section headers for empty arrays.
+        assert!(!md.contains("## Besprochene Themen"));
+        assert!(!md.contains("## Entscheidungen"));
+        assert!(!md.contains("## Action Items"));
+        assert!(!md.contains("## Zusammenfassung"));
+        assert!(!md.contains("## Teilnehmer"));
+    }
+
+    #[test]
+    fn markdown_handles_missing_keys() {
+        // Simulate a minimal/broken meeting JSON — export should not panic.
+        let meeting = json!({});
+        let md = generate_markdown(&meeting);
+        assert!(md.contains("# Meeting")); // fallback title
+    }
+
+    #[test]
+    fn wrap_for_pdf_short_line_unchanged() {
+        let lines = wrap_for_pdf("Hello world", 95);
+        assert_eq!(lines, vec!["Hello world"]);
+    }
+
+    #[test]
+    fn wrap_for_pdf_empty_line() {
+        let lines = wrap_for_pdf("", 95);
+        assert_eq!(lines, vec![""]);
+    }
+
+    #[test]
+    fn wrap_for_pdf_breaks_long_line_at_space() {
+        let input = "This is a line that needs to be wrapped because it exceeds the limit";
+        let lines = wrap_for_pdf(input, 30);
+        assert!(lines.len() > 1);
+        // No wrapped line should exceed the limit.
+        for line in &lines {
+            assert!(line.chars().count() <= 30, "Line too long: {line}");
+        }
+        // Recombined text should preserve all words.
+        let joined = lines.join(" ");
+        for word in input.split_whitespace() {
+            assert!(joined.contains(word), "Missing word: {word}");
+        }
+    }
+
+    #[test]
+    fn wrap_for_pdf_min_width_clamped() {
+        // Even with very small max_chars, the function should not panic.
+        let lines = wrap_for_pdf("Short", 2);
+        assert!(!lines.is_empty());
+    }
+
+    #[test]
+    fn generate_pdf_produces_valid_bytes() {
+        let md = generate_markdown(&sample_meeting());
+        let bytes = generate_pdf(&md).expect("PDF generation should succeed");
+        // PDF files always start with %PDF.
+        assert!(bytes.len() > 100, "PDF too small");
+        assert_eq!(&bytes[..5], b"%PDF-");
+    }
+
+    #[test]
+    fn generate_pdf_empty_markdown() {
+        let bytes = generate_pdf("").expect("Empty PDF should still succeed");
+        assert!(bytes.len() > 50);
+        assert_eq!(&bytes[..5], b"%PDF-");
+    }
+}
