@@ -30,8 +30,8 @@ impl Storage {
         storage.run_migrations().await.map_err(|e| {
             if e.contains("file is not a database") {
                 format!(
-                    "Die Datenbank '{}' kann mit dem aktuellen Schlüssel nicht geöffnet werden. \
-                     Bitte lösche die Datei, damit eine neue angelegt wird. Ursprungsfehler: {}",
+                    "Database '{}' cannot be opened with the current key. \
+                     Delete the file to create a fresh database. Original error: {}",
                     db_path, e
                 )
             } else {

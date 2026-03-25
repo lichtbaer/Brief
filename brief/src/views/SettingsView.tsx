@@ -170,8 +170,8 @@ export function SettingsView() {
             onChange={(e) => void updateSetting("meeting_language", e.target.value)}
             style={{ maxWidth: "14rem" }}
           >
-            <option value="de">Deutsch</option>
-            <option value="en">English</option>
+            <option value="de">{t("languages.de")}</option>
+            <option value="en">{t("languages.en")}</option>
           </select>
         </div>
 
@@ -245,8 +245,8 @@ export function SettingsView() {
             onChange={(e) => void updateSetting("ui_language", e.target.value)}
             style={{ maxWidth: "14rem" }}
           >
-            <option value="de">Deutsch</option>
-            <option value="en">English</option>
+            <option value="de">{t("languages.de")}</option>
+            <option value="en">{t("languages.en")}</option>
           </select>
         </div>
 

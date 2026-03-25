@@ -221,8 +221,8 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
               }}
               style={{ maxWidth: "14rem" }}
             >
-              <option value="de">Deutsch</option>
-              <option value="en">English</option>
+              <option value="de">{t("languages.de")}</option>
+              <option value="en">{t("languages.en")}</option>
             </select>
           </div>
         </>

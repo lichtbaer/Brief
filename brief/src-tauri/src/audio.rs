@@ -57,7 +57,7 @@ impl AudioRecorder {
         let host = cpal::default_host();
         let device = host
             .default_input_device()
-            .ok_or_else(|| "Kein Mikrofon gefunden".to_string())?;
+            .ok_or_else(|| "No microphone found".to_string())?;
 
         let supported = device.default_input_config().map_err(|e| e.to_string())?;
 
@@ -72,7 +72,7 @@ impl AudioRecorder {
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
 
         let join = std::thread::spawn(move || {
-            let err_fn = |err: cpal::StreamError| eprintln!("Audio-Fehler: {err}");
+            let err_fn = |err: cpal::StreamError| eprintln!("Audio error: {err}");
 
             let stream_result = match sample_format {
                 cpal::SampleFormat::I8 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, i8),
@@ -86,7 +86,7 @@ impl AudioRecorder {
                 cpal::SampleFormat::F32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, f32),
                 cpal::SampleFormat::F64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, f64),
                 f => {
-                    eprintln!("Nicht unterstütztes Audio-Sample-Format: {f}");
+                    eprintln!("Unsupported audio sample format: {f}");
                     return;
                 }
             };
@@ -94,13 +94,13 @@ impl AudioRecorder {
             let stream = match stream_result {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!("Stream konnte nicht erstellt werden: {e}");
+                    eprintln!("Failed to build audio stream: {e}");
                     return;
                 }
             };
 
             if let Err(e) = stream.play() {
-                eprintln!("Stream konnte nicht gestartet werden: {e}");
+                eprintln!("Failed to start audio stream: {e}");
                 return;
             }
 
@@ -120,17 +120,17 @@ impl AudioRecorder {
         }
         if let Some(j) = self.join.take() {
             j.join()
-                .map_err(|_| "Aufnahme-Thread konnte nicht beendet werden".to_string())?;
+                .map_err(|_| "Recording thread could not be joined".to_string())?;
         }
 
         let source_rate = self
             .source_sample_rate
-            .ok_or_else(|| "Interner Fehler: keine Sample-Rate gesetzt".to_string())?;
+            .ok_or_else(|| "Internal error: source sample rate not set".to_string())?;
 
         let buf = self
             .buffer
             .lock()
-            .map_err(|_| "Aufnahme-Puffer nicht lesbar (Mutex)".to_string())?;
+            .map_err(|_| "Recording buffer not readable (Mutex poisoned)".to_string())?;
 
         let samples_16k = resample_to_16k(&buf, source_rate);
 

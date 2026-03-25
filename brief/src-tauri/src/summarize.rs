@@ -41,7 +41,7 @@ impl Summarizer {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(300))
             .build()
-            .map_err(|e| format!("HTTP-Client-Fehler: {}", e))?;
+            .map_err(|e| format!("HTTP client error: {}", e))?;
         Ok(Summarizer {
             client,
             ollama_url: ollama_url.unwrap_or_else(|| DEFAULT_OLLAMA_URL.to_string()),
@@ -88,7 +88,7 @@ impl Summarizer {
             .json(&request)
             .send()
             .await
-            .map_err(|e| format!("Ollama not reachable: {}", e))?;
+            .map_err(|_| "Ollama not reachable — is `ollama serve` running?".to_string())?;
 
         if !response.status().is_success() {
             return Err(format!("Ollama error: HTTP {}", response.status()));
@@ -97,7 +97,7 @@ impl Summarizer {
         let result: OllamaChatResponse = response
             .json()
             .await
-            .map_err(|e| format!("Ollama response not parsable: {}", e))?;
+            .map_err(|_| "Ollama response could not be parsed".to_string())?;
 
         parse_meeting_output(&result.message.content, meeting_type, &self.model)
     }

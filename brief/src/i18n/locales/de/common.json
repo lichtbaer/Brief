@@ -27,6 +27,10 @@
     "internal": "Internes Meeting",
     "custom": "Benutzerdefiniert"
   },
+  "languages": {
+    "de": "Deutsch",
+    "en": "English"
+  },
   "recording": {
     "title": "Neue Aufnahme",
     "smoke_test_heading": "Brief — Phase 1 Smoke Test",
