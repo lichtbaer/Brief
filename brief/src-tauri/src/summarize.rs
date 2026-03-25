@@ -175,4 +175,75 @@ mod tests {
         assert_eq!(out.template_used, "internal");
         assert_eq!(out.model_used, "m");
     }
+
+    #[test]
+    fn parse_invalid_json_returns_error() {
+        let raw = "not valid json at all";
+        let result = parse_meeting_output(raw, "consulting", "m");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("JSON parse error"), "Got: {err}");
+    }
+
+    #[test]
+    fn parse_empty_json_object() {
+        let raw = "{}";
+        let out = parse_meeting_output(raw, "legal", "llama3.1:8b").unwrap();
+        assert_eq!(out.summary_short, "");
+        assert!(out.topics.is_empty());
+        assert!(out.decisions.is_empty());
+        assert!(out.action_items.is_empty());
+        assert!(out.participants_mentioned.is_empty());
+        assert_eq!(out.template_used, "legal");
+        assert_eq!(out.model_used, "llama3.1:8b");
+        // generated_at should be a non-empty RFC3339 timestamp.
+        assert!(!out.generated_at.is_empty());
+    }
+
+    #[test]
+    fn parse_strips_triple_backtick_without_json_tag() {
+        let raw = r#"```
+{"summary_short":"Backtick only"}
+```"#;
+        let out = parse_meeting_output(raw, "consulting", "m").unwrap();
+        assert_eq!(out.summary_short, "Backtick only");
+    }
+
+    #[test]
+    fn parse_extracts_participants() {
+        let raw = r#"{"summary_short":"","participants_mentioned":["Alice","Bob",""]}"#;
+        let out = parse_meeting_output(raw, "consulting", "m").unwrap();
+        // Empty strings are filtered by the frontend, but the parser preserves them.
+        assert_eq!(out.participants_mentioned.len(), 3);
+        assert_eq!(out.participants_mentioned[0], "Alice");
+    }
+
+    #[test]
+    fn parse_preserves_follow_up_draft() {
+        let raw = r#"{"summary_short":"s","follow_up_draft":{"subject":"Re: Meeting","full_text":"Hi all"}}"#;
+        let out = parse_meeting_output(raw, "consulting", "m").unwrap();
+        assert_eq!(out.follow_up_draft["subject"], "Re: Meeting");
+        assert_eq!(out.follow_up_draft["full_text"], "Hi all");
+    }
+
+    #[test]
+    fn parse_with_action_items() {
+        let raw = r#"{"summary_short":"s","action_items":[{"description":"Send report","owner":"Alice","due_date":"2025-04-01","priority":"high"}]}"#;
+        let out = parse_meeting_output(raw, "consulting", "m").unwrap();
+        assert_eq!(out.action_items.len(), 1);
+        assert_eq!(out.action_items[0]["description"], "Send report");
+        assert_eq!(out.action_items[0]["owner"], "Alice");
+        assert_eq!(out.action_items[0]["priority"], "high");
+    }
+
+    #[test]
+    fn parse_with_whitespace_around_json() {
+        let raw = r#"
+
+  {"summary_short":"Padded"}
+
+"#;
+        let out = parse_meeting_output(raw, "consulting", "m").unwrap();
+        assert_eq!(out.summary_short, "Padded");
+    }
 }

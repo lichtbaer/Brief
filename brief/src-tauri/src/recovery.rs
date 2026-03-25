@@ -75,4 +75,76 @@ mod tests {
             Some("550e8400-e29b-41d4-a716-446655440000".to_string())
         );
     }
+
+    #[test]
+    fn session_id_rejects_non_uuid() {
+        assert_eq!(session_id_from_wav_filename("brief_not-a-uuid.wav"), None);
+        assert_eq!(session_id_from_wav_filename("random.wav"), None);
+        assert_eq!(session_id_from_wav_filename("brief_.wav"), None);
+    }
+
+    #[test]
+    fn session_id_rejects_non_wav_extension() {
+        // The function works on filename stem, so .mp3 still extracts — but the caller
+        // (find_orphaned_wav_files) filters by extension.  We test the stem extraction.
+        assert_eq!(session_id_from_wav_filename("noext"), None);
+    }
+
+    #[test]
+    fn find_orphaned_excludes_active_and_processing() {
+        let dir = std::env::temp_dir().join("brief_recovery_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let uuid1 = "550e8400-e29b-41d4-a716-446655440001";
+        let uuid2 = "550e8400-e29b-41d4-a716-446655440002";
+        let uuid3 = "550e8400-e29b-41d4-a716-446655440003";
+
+        // Create three temp WAV files.
+        std::fs::write(dir.join(format!("brief_{uuid1}.wav")), b"fake").unwrap();
+        std::fs::write(dir.join(format!("brief_{uuid2}.wav")), b"fake").unwrap();
+        std::fs::write(dir.join(format!("brief_{uuid3}.wav")), b"fake").unwrap();
+        // Also a non-WAV file that should be ignored.
+        std::fs::write(dir.join("brief_unrelated.txt"), b"text").unwrap();
+
+        let mut active = HashSet::new();
+        active.insert(uuid1.to_string());
+        let mut processing = HashSet::new();
+        processing.insert(uuid2.to_string());
+
+        let orphans = find_orphaned_wav_files(&dir, &active, &processing);
+        assert_eq!(orphans.len(), 1);
+        assert!(orphans[0]
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains(uuid3));
+
+        // Cleanup.
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_orphaned_returns_empty_for_nonexistent_dir() {
+        let missing = PathBuf::from("/nonexistent/brief_orphan_test_9f3a");
+        let orphans = find_orphaned_wav_files(&missing, &HashSet::new(), &HashSet::new());
+        assert!(orphans.is_empty());
+    }
+
+    #[test]
+    fn find_orphaned_ignores_non_wav_files() {
+        let dir = std::env::temp_dir().join("brief_recovery_test_ext");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let uuid = "550e8400-e29b-41d4-a716-446655440009";
+        std::fs::write(dir.join(format!("brief_{uuid}.mp3")), b"fake").unwrap();
+        std::fs::write(dir.join(format!("brief_{uuid}.txt")), b"fake").unwrap();
+
+        let orphans = find_orphaned_wav_files(&dir, &HashSet::new(), &HashSet::new());
+        assert!(orphans.is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

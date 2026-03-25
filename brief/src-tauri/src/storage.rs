@@ -499,6 +499,43 @@ mod tests {
         );
     }
 
+    #[test]
+    fn build_fts5_query_single_token() {
+        assert_eq!(build_fts5_query("hello").as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn build_fts5_query_empty_string() {
+        assert_eq!(build_fts5_query(""), None);
+    }
+
+    #[test]
+    fn build_fts5_query_special_chars_quoted() {
+        // Tokens with special characters should be double-quoted for FTS5 safety.
+        assert_eq!(
+            build_fts5_query("hello@world").as_deref(),
+            Some("\"hello@world\"")
+        );
+    }
+
+    #[test]
+    fn build_fts5_query_underscores_are_alphanumeric() {
+        // Underscores should pass through as bare tokens (not quoted).
+        assert_eq!(
+            build_fts5_query("meeting_notes").as_deref(),
+            Some("meeting_notes")
+        );
+    }
+
+    #[test]
+    fn build_fts5_query_unicode_tokens() {
+        // German umlauts and accented chars are alphanumeric.
+        assert_eq!(
+            build_fts5_query("Büro Café").as_deref(),
+            Some("Büro AND Café")
+        );
+    }
+
     #[tokio::test]
     async fn migrations_idempotent_and_encrypted_roundtrip() {
         let tmp = std::env::temp_dir().join(format!(

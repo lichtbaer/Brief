@@ -101,4 +101,57 @@ mod tests {
         let s: String = AppError::NoMicrophone.into();
         assert_eq!(s, "No microphone found");
     }
+
+    #[test]
+    fn all_variants_display_non_empty() {
+        // Ensure every variant produces a non-empty Display string,
+        // so the frontend never receives a blank error message.
+        let variants: Vec<AppError> = vec![
+            AppError::StateLocked,
+            AppError::SessionNotFound("id-1".into()),
+            AppError::NoMicrophone,
+            AppError::AudioNotFound("/tmp/test.wav".into()),
+            AppError::InvalidAudioPath,
+            AppError::WhisperxUnavailable,
+            AppError::TranscriptionTimeout,
+            AppError::TranscriptionFailed("some detail".into()),
+            AppError::SummarizationFailed("connection refused".into()),
+            AppError::DatabaseError("table not found".into()),
+            AppError::IoError("permission denied".into()),
+            AppError::ValidationError("must not be empty".into()),
+            AppError::MeetingNotFound("id-2".into()),
+            AppError::TaskError("join failed".into()),
+            AppError::Cancelled,
+        ];
+        for v in variants {
+            let s = v.to_string();
+            assert!(!s.is_empty(), "Display for {:?} must not be empty", s);
+        }
+    }
+
+    #[test]
+    fn transcription_timeout_matches_backend_token() {
+        // The frontend relies on this exact string to show the localised timeout message.
+        let s = AppError::TranscriptionTimeout.to_string();
+        assert_eq!(s, crate::transcribe::TRANSCRIPTION_TIMEOUT_ERROR);
+    }
+
+    #[test]
+    fn validation_error_shows_inner_message_only() {
+        // ValidationError should NOT prefix with "Validation error:" — it forwards the
+        // message as-is so the frontend can display it directly.
+        let msg = "Timeout must be a positive number (seconds)";
+        assert_eq!(AppError::ValidationError(msg.into()).to_string(), msg);
+    }
+
+    #[test]
+    fn from_apperror_into_result_err() {
+        // Simulate what Tauri command handlers do: return Err(AppError::X.into()).
+        fn example() -> Result<(), String> {
+            Err(AppError::MeetingNotFound("m-42".into()).into())
+        }
+        let err = example().unwrap_err();
+        assert!(err.contains("m-42"));
+        assert!(err.contains("Meeting not found"));
+    }
 }
