@@ -36,7 +36,7 @@ type RecordingAction =
   | { type: "CLEAR_SESSION" }
   | { type: "RESET" };
 
-const initialState: RecordingState = {
+export const initialState: RecordingState = {
   status: "idle",
   sessionId: null,
   error: null,
@@ -44,7 +44,7 @@ const initialState: RecordingState = {
   processingStep: null,
 };
 
-function recordingReducer(state: RecordingState, action: RecordingAction): RecordingState {
+export function recordingReducer(state: RecordingState, action: RecordingAction): RecordingState {
   switch (action.type) {
     case "START_RECORDING":
       return { ...initialState, status: "recording", sessionId: action.sessionId };

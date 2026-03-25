@@ -156,4 +156,28 @@ mod tests {
         let unknown = get_system_prompt("custom");
         assert!(unknown.contains("business consulting"));
     }
+
+    #[test]
+    fn empty_meeting_type_falls_back_to_consulting() {
+        let s = get_system_prompt("");
+        assert!(s.contains("business consulting"));
+    }
+
+    #[test]
+    fn case_sensitive_legal_uppercase_falls_back() {
+        // "Legal" (uppercase L) should NOT match "legal" → falls back to consulting.
+        let s = get_system_prompt("Legal");
+        assert!(s.contains("business consulting"));
+    }
+
+    #[test]
+    fn all_templates_contain_json_output_structure() {
+        // Every template should instruct the LLM to produce the expected JSON fields.
+        for mt in &["consulting", "legal", "internal"] {
+            let s = get_system_prompt(mt);
+            assert!(s.contains("summary_short"), "{mt} missing summary_short");
+            assert!(s.contains("topics"), "{mt} missing topics");
+            assert!(s.contains("action_items"), "{mt} missing action_items");
+        }
+    }
 }

@@ -358,4 +358,94 @@ mod tests {
         assert!(bytes.len() > 50);
         assert_eq!(&bytes[..5], b"%PDF-");
     }
+
+    // -- Additional edge cases --
+
+    #[test]
+    fn markdown_with_special_markdown_chars_in_fields() {
+        let meeting = json!({
+            "title": "Meeting with *bold* and `code`",
+            "created_at": "2025-01-01T00:00:00Z",
+            "meeting_type": "consulting",
+            "output": {
+                "summary_short": "Summary with [link](url) and **bold**",
+                "topics": [{ "title": "Topic with # heading", "summary": "Details with > quote" }],
+                "decisions": [{ "description": "Decision with `backticks`" }],
+                "action_items": [],
+                "follow_up_draft": {},
+                "participants_mentioned": []
+            }
+        });
+        let md = generate_markdown(&meeting);
+        // Should not crash and should preserve the raw content.
+        assert!(md.contains("*bold*"));
+        assert!(md.contains("`code`"));
+        assert!(md.contains("# heading"));
+    }
+
+    #[test]
+    fn markdown_with_unicode_emoji_in_fields() {
+        let meeting = json!({
+            "title": "Sprint 🚀",
+            "created_at": "2025-01-01T00:00:00Z",
+            "meeting_type": "internal",
+            "output": {
+                "summary_short": "Team morale is high 💪",
+                "topics": [],
+                "decisions": [],
+                "action_items": [{ "description": "Celebrate 🎉", "owner": "Everyone", "due_date": null, "priority": null }],
+                "follow_up_draft": {},
+                "participants_mentioned": ["Ünsal", "José"]
+            }
+        });
+        let md = generate_markdown(&meeting);
+        assert!(md.contains("Sprint 🚀"));
+        assert!(md.contains("💪"));
+        assert!(md.contains("🎉"));
+        assert!(md.contains("Ünsal"));
+    }
+
+    #[test]
+    fn wrap_for_pdf_word_longer_than_max_chars() {
+        let long_word = "a".repeat(50);
+        let lines = wrap_for_pdf(&long_word, 20);
+        // Must not loop infinitely; should produce at least one line.
+        assert!(!lines.is_empty());
+        // The first line should contain at most max_chars.
+        assert!(lines[0].chars().count() <= 20);
+    }
+
+    #[test]
+    fn wrap_for_pdf_multiple_spaces() {
+        let input = "word1    word2    word3";
+        let lines = wrap_for_pdf(input, 95);
+        // Short enough to fit in one line.
+        assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn wrap_for_pdf_unicode_line() {
+        let input = "Ärztlicher Beratungsgespräch über Überweisung zum Facharzt für Hals-Nasen-Ohren-Heilkunde";
+        let lines = wrap_for_pdf(input, 40);
+        assert!(lines.len() > 1);
+        for line in &lines {
+            assert!(line.chars().count() <= 40, "Line too long: {line}");
+        }
+    }
+
+    #[test]
+    fn generate_pdf_with_headings() {
+        let md = "# Title\n\n## Section\n\nSome text.\n\n### Subsection\n\nMore text.";
+        let bytes = generate_pdf(md).expect("PDF with headings should work");
+        assert_eq!(&bytes[..5], b"%PDF-");
+    }
+
+    #[test]
+    fn generate_pdf_with_long_content() {
+        // Simulate ~5 pages of text.
+        let paragraph = "This is a paragraph of text for testing. ".repeat(50);
+        let md = format!("# Long Document\n\n{}", paragraph.repeat(5));
+        let bytes = generate_pdf(&md).expect("Long PDF should succeed");
+        assert!(bytes.len() > 1000);
+    }
 }

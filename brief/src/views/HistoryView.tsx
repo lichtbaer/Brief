@@ -17,6 +17,16 @@ interface HistoryViewProps {
   onOpenMeeting: (meeting: Meeting) => void;
 }
 
+export function formatMeetingDate(iso: string, locale: string): string {
+  return new Date(iso).toLocaleDateString(locale, {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function SkeletonCards() {
   return (
     <div aria-hidden="true">
@@ -80,14 +90,7 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
   // user's language preference instead of always showing German formatting.
   const dateLocale = i18n.language === "en" ? "en-GB" : "de-DE";
 
-  const formatDate = (iso: string) =>
-    new Date(iso).toLocaleDateString(dateLocale, {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+  const formatDate = (iso: string) => formatMeetingDate(iso, dateLocale);
 
   const openMeeting = async (id: string) => {
     setOpenError(null);

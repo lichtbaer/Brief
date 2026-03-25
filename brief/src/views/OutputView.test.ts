@@ -36,4 +36,24 @@ describe("safeExportBaseName", () => {
     const long = "a".repeat(200);
     expect(safeExportBaseName(long)).toBe(long);
   });
+
+  it("handles consecutive special characters", () => {
+    expect(safeExportBaseName("a//b")).toBe("a--b");
+    expect(safeExportBaseName("///")).toBe("---");
+  });
+
+  it("handles special chars at boundaries", () => {
+    expect(safeExportBaseName("/leading")).toBe("-leading");
+    expect(safeExportBaseName("trailing/")).toBe("trailing-");
+  });
+
+  it("handles tabs and newlines", () => {
+    expect(safeExportBaseName("line1\nline2")).toBe("line1\nline2");
+    expect(safeExportBaseName("col1\tcol2")).toBe("col1\tcol2");
+  });
+
+  it("handles string of only special characters becoming non-empty", () => {
+    // All three chars match the regex and become dashes
+    expect(safeExportBaseName("?*:")).toBe("---");
+  });
 });

@@ -595,4 +595,74 @@ mod tests {
     fn escape_key_pragma_multiple_quotes() {
         assert_eq!(escape_key_pragma("a'b'c"), "a''b''c");
     }
+
+    // -- build_fts5_query edge cases --
+
+    #[test]
+    fn build_fts5_query_single_token() {
+        assert_eq!(build_fts5_query("hello").as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn build_fts5_query_empty_returns_none() {
+        assert_eq!(build_fts5_query(""), None);
+        assert_eq!(build_fts5_query("   "), None);
+    }
+
+    #[test]
+    fn build_fts5_query_unicode_tokens() {
+        assert_eq!(
+            build_fts5_query("Ärzte Überweisung").as_deref(),
+            Some("Ärzte AND Überweisung")
+        );
+    }
+
+    #[test]
+    fn build_fts5_query_special_chars_quoted() {
+        // Tokens with non-alphanumeric chars get double-quoted.
+        let result = build_fts5_query("hello-world").unwrap();
+        assert!(result.contains('"'), "Hyphenated token should be quoted: {result}");
+    }
+
+    #[test]
+    fn build_fts5_query_many_tokens() {
+        let result = build_fts5_query("a b c d").unwrap();
+        assert_eq!(result, "a AND b AND c AND d");
+    }
+
+    // -- Settings roundtrip (async) --
+
+    #[tokio::test]
+    async fn settings_roundtrip() {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let tmp = std::env::temp_dir().join(format!("brief_test_settings_{ts}.db"));
+        let _ = std::fs::remove_file(&tmp);
+        let key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        let s = Storage::new(tmp.to_str().unwrap(), key).await.unwrap();
+
+        // Set and get a setting.
+        s.set_setting("test_key", "test_value").await.unwrap();
+        let v = s.get_setting("test_key").await.unwrap();
+        assert_eq!(v, Some("test_value".to_string()));
+
+        // Missing key returns None.
+        let missing = s.get_setting("nonexistent").await.unwrap();
+        assert_eq!(missing, None);
+
+        // Update existing key.
+        s.set_setting("test_key", "updated").await.unwrap();
+        let v2 = s.get_setting("test_key").await.unwrap();
+        assert_eq!(v2, Some("updated".to_string()));
+
+        // get_all_settings includes the key.
+        let all = s.get_all_settings().await.unwrap();
+        assert!(all.contains("test_key"));
+        assert!(all.contains("updated"));
+
+        let _ = std::fs::remove_file(&tmp);
+    }
 }
