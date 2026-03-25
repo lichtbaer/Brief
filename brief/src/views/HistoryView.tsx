@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { Meeting } from "../types";
+import { isMeeting, type Meeting } from "../types";
 
 export interface MeetingSummary {
   id: string;
@@ -38,12 +38,16 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [openError, setOpenError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadMeetings = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const result = await invoke<string>("list_meetings");
       setMeetings(JSON.parse(result) as MeetingSummary[]);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -61,9 +65,12 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
       return;
     }
     setLoading(true);
+    setLoadError(null);
     try {
       const result = await invoke<string>("search_meetings", { query: q });
       setMeetings(JSON.parse(result) as MeetingSummary[]);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -86,7 +93,8 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
     setOpenError(null);
     try {
       const json = await invoke<string>("get_meeting", { id });
-      const meeting = JSON.parse(json) as Meeting;
+      const meeting = JSON.parse(json) as unknown;
+      if (!isMeeting(meeting)) throw new Error("Invalid meeting data");
       onOpenMeeting(meeting);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -110,6 +118,13 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
         style={{ maxWidth: "32rem", marginBottom: "1.25rem" }}
         aria-label={t("history.search_placeholder")}
       />
+
+      {loadError && (
+        <div className="alert alert-error" role="alert">
+          <span>⚠</span>
+          <span>{t("errors.alert", { message: loadError })}</span>
+        </div>
+      )}
 
       {openError && (
         <div className="alert alert-error">

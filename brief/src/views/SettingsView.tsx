@@ -56,7 +56,12 @@ export function SettingsView() {
   }, []);
 
   const updateSetting = async (key: keyof PersistedSettings, value: string) => {
-    await invoke("update_setting", { key, value });
+    try {
+      await invoke("update_setting", { key, value });
+    } catch (e) {
+      console.error(`Failed to update setting "${key}":`, e);
+      return;
+    }
     setSettings((prev) => (prev ? { ...prev, [key]: value } : prev));
 
     if (key === "llm_model") {

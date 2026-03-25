@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { TRANSCRIPTION_TIMEOUT_ERROR, type Meeting, type MeetingType } from "../types";
+import { TRANSCRIPTION_TIMEOUT_ERROR, isMeeting, type Meeting, type MeetingType } from "../types";
 
 type AppStatus = "idle" | "recording" | "processing" | "done" | "error";
 type ProcessingStep = "transcribing" | "summarizing";
@@ -95,7 +95,8 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
         audioPath: audioPath,
         meetingType: meetingType,
       });
-      const parsed = JSON.parse(result) as Meeting;
+      const parsed = JSON.parse(result) as unknown;
+      if (!isMeeting(parsed)) throw new Error("Invalid meeting data from backend");
       if (onMeetingDone) {
         onMeetingDone(parsed);
         reset();
@@ -216,7 +217,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
               onChange={(e) => {
                 const v = e.target.value;
                 setMeetingLanguage(v);
-                void invoke("update_setting", { key: "meeting_language", value: v });
+                void invoke("update_setting", { key: "meeting_language", value: v }).catch(() => {});
               }}
               style={{ maxWidth: "14rem" }}
             >

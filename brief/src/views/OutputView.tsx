@@ -117,7 +117,13 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
         filters: [{ name: "PDF", extensions: ["pdf"] }],
       });
       if (path) {
-        const bytes = Uint8Array.from(atob(pdfBase64), (c) => c.charCodeAt(0));
+        let decoded: string;
+        try {
+          decoded = atob(pdfBase64);
+        } catch {
+          throw new Error("PDF base64 decoding failed");
+        }
+        const bytes = Uint8Array.from(decoded, (c) => c.charCodeAt(0));
         await writeFile(path, bytes);
       }
     } catch (e) {
@@ -219,7 +225,7 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
       <section className="output-section">
         <h2>{t("output.audio_recording")}</h2>
         {audioUrl ? (
-          <audio controls src={audioUrl} style={{ width: "100%", marginTop: "0.5rem" }} />
+          <audio controls src={audioUrl} aria-label={t("output.audio_recording")} style={{ width: "100%", marginTop: "0.5rem" }} />
         ) : (
           <p style={{ marginTop: "0.5rem", color: "var(--color-text-muted)", fontSize: "0.9rem" }}>
             {t("output.audio_not_saved")}

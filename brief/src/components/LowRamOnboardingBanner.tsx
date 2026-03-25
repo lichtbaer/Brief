@@ -14,7 +14,11 @@ export function LowRamOnboardingBanner({
   const pullCommand = `ollama pull ${recommendedModel}`;
 
   const handleDismiss = async () => {
-    await invoke("dismiss_low_ram_onboarding");
+    try {
+      await invoke("dismiss_low_ram_onboarding");
+    } catch {
+      // Best-effort: banner reappears next launch if persist fails.
+    }
     onDismissed();
   };
 

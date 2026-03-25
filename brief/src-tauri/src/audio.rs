@@ -9,6 +9,10 @@ use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 
+/// Maximum buffer size in samples: ~4 hours at 48 kHz mono (~1.3 GB f32).
+/// Prevents unbounded memory growth during very long recordings.
+const MAX_BUFFER_SAMPLES: usize = 48_000 * 60 * 240;
+
 /// Holds one recording session: CPAL capture on a background thread, mono buffer, WAV output at 16 kHz.
 pub struct AudioRecorder {
     pub session_id: String,
@@ -155,6 +159,10 @@ where
 {
     let ch = channels.max(1);
     if let Ok(mut buf) = buffer.lock() {
+        // Drop incoming frames if the buffer has reached the safety cap.
+        if buf.len() >= MAX_BUFFER_SAMPLES {
+            return;
+        }
         for frame in input.chunks(ch) {
             let n = frame.len() as f32;
             let mono = frame.iter().copied().map(f32::from_sample).sum::<f32>() / n;

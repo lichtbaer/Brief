@@ -4,6 +4,17 @@
 use rand::RngCore;
 use std::path::Path;
 
+/// Writes `content` to `path` with restrictive permissions (0600 on Unix).
+fn write_key_file(path: &Path, content: &str) -> std::io::Result<()> {
+    std::fs::write(path, content)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
+}
+
 const KEYRING_SERVICE: &str = "com.ubuntu.brief";
 const KEYRING_USER: &str = "sqlcipher_db_key";
 const FALLBACK_FILENAME: &str = ".brief_encryption_key";
@@ -40,7 +51,7 @@ pub fn get_or_create_encryption_key(app_data_dir: &Path) -> Result<String, Strin
         (None, None) => {
             let key = generate_secure_key()?;
             ensure_keychain(&key);
-            std::fs::write(&fallback, &key)
+            write_key_file(&fallback, &key)
                 .map_err(|e| format!("Encryption-key fallback write failed: {}", e))?;
             Ok(key)
         }
@@ -58,12 +69,12 @@ fn read_fallback_key(path: &Path) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// Best-effort: write key to fallback file (no error propagated).
+/// Best-effort: write key to fallback file with restricted permissions (no error propagated).
 fn ensure_fallback(path: &Path, key: &str) {
     if path.exists() {
         return;
     }
-    let _ = std::fs::write(path, key);
+    let _ = write_key_file(path, key);
 }
 
 /// Best-effort: write key to OS keychain (no error propagated).

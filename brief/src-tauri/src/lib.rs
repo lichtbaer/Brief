@@ -360,6 +360,15 @@ async fn discard_orphaned_recording(audio_path: String) -> Result<(), String> {
     std::fs::remove_file(&canonical).map_err(|e| AppError::IoError(e.to_string()).into())
 }
 
+/// Fetches and parses a meeting as JSON value — shared helper to avoid duplicating the fetch+parse pattern.
+async fn fetch_meeting_value(storage: &Storage, id: &str) -> Result<serde_json::Value, String> {
+    let json = storage
+        .get_meeting(id)
+        .await?
+        .ok_or_else(|| AppError::MeetingNotFound(id.to_string()).to_string())?;
+    serde_json::from_str(&json).map_err(|e| AppError::IoError(e.to_string()).to_string())
+}
+
 /// Loads a meeting by id from the database or returns an error string if not found.
 #[tauri::command]
 async fn get_meeting(id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
@@ -374,12 +383,7 @@ async fn get_meeting(id: String, state: tauri::State<'_, AppState>) -> Result<St
 #[tauri::command]
 async fn export_markdown(id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
     let storage = state.storage.lock().await;
-    let meeting_json = storage
-        .get_meeting(&id)
-        .await?
-        .ok_or_else(|| AppError::MeetingNotFound(id).to_string())?;
-    let meeting: serde_json::Value =
-        serde_json::from_str(&meeting_json).map_err(|e| AppError::IoError(e.to_string()))?;
+    let meeting = fetch_meeting_value(&storage, &id).await?;
     Ok(export::generate_markdown(&meeting))
 }
 
@@ -387,12 +391,7 @@ async fn export_markdown(id: String, state: tauri::State<'_, AppState>) -> Resul
 #[tauri::command]
 async fn export_pdf(id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
     let storage = state.storage.lock().await;
-    let meeting_json = storage
-        .get_meeting(&id)
-        .await?
-        .ok_or_else(|| AppError::MeetingNotFound(id).to_string())?;
-    let meeting: serde_json::Value =
-        serde_json::from_str(&meeting_json).map_err(|e| AppError::IoError(e.to_string()))?;
+    let meeting = fetch_meeting_value(&storage, &id).await?;
     let markdown = export::generate_markdown(&meeting);
     let bytes = export::generate_pdf(&markdown)?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
@@ -500,12 +499,7 @@ async fn check_ollama() -> Result<serde_json::Value, String> {
 #[tauri::command]
 async fn get_audio_path(id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
     let storage = state.storage.lock().await;
-    let meeting_json = storage
-        .get_meeting(&id)
-        .await?
-        .ok_or_else(|| AppError::MeetingNotFound(id.clone()).to_string())?;
-    let meeting: serde_json::Value =
-        serde_json::from_str(&meeting_json).map_err(|e| AppError::IoError(e.to_string()))?;
+    let meeting = fetch_meeting_value(&storage, &id).await?;
     let Some(audio_path) = meeting["audio_path"].as_str() else {
         return Err(AppError::AudioNotFound(id).into());
     };
@@ -525,12 +519,7 @@ async fn export_audio(
 ) -> Result<String, String> {
     let (src, default_name) = {
         let storage = state.storage.lock().await;
-        let meeting_json = storage
-            .get_meeting(&id)
-            .await?
-            .ok_or_else(|| AppError::MeetingNotFound(id.clone()).to_string())?;
-        let meeting: serde_json::Value =
-            serde_json::from_str(&meeting_json).map_err(|e| AppError::IoError(e.to_string()))?;
+        let meeting = fetch_meeting_value(&storage, &id).await?;
         let audio_path = meeting["audio_path"]
             .as_str()
             .ok_or(AppError::AudioNotFound(id))?;
