@@ -573,4 +573,26 @@ mod tests {
 
         let _ = std::fs::remove_file(&tmp);
     }
+
+    // -- escape_key_pragma --
+
+    #[test]
+    fn escape_key_pragma_no_quotes() {
+        assert_eq!(escape_key_pragma("abc123"), "abc123");
+    }
+
+    #[test]
+    fn escape_key_pragma_empty_string() {
+        assert_eq!(escape_key_pragma(""), "");
+    }
+
+    #[test]
+    fn escape_key_pragma_single_quote() {
+        assert_eq!(escape_key_pragma("it's"), "it''s");
+    }
+
+    #[test]
+    fn escape_key_pragma_multiple_quotes() {
+        assert_eq!(escape_key_pragma("a'b'c"), "a''b''c");
+    }
 }

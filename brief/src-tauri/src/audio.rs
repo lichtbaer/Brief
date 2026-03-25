@@ -190,7 +190,8 @@ fn resample_to_16k(samples: &[f32], source_rate: u32) -> Vec<f32> {
 
 #[cfg(test)]
 mod tests {
-    use super::resample_to_16k;
+    use super::*;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn resample_to_16k_identity_when_already_16k() {
@@ -207,5 +208,63 @@ mod tests {
         let out = resample_to_16k(&samples, 48_000);
         assert_eq!(out.len(), 16_000);
         assert!(out.iter().all(|&s| (s - 1.0).abs() < f32::EPSILON));
+    }
+
+    #[test]
+    fn resample_to_16k_empty_input() {
+        let out = resample_to_16k(&[], 44100);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn resample_to_16k_single_sample() {
+        let out = resample_to_16k(&[0.5], 48000);
+        assert!(!out.is_empty());
+        assert!((out[0] - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn resample_to_16k_upsampling_8khz() {
+        // 1 second at 8 kHz → 8_000 samples → ~16_000 output.
+        let samples: Vec<f32> = vec![0.25; 8_000];
+        let out = resample_to_16k(&samples, 8_000);
+        assert_eq!(out.len(), 16_000);
+    }
+
+    #[test]
+    fn push_mono_frames_stereo_averages_channels() {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        // Stereo frame: left=0.0, right=1.0 → mono=0.5
+        let input: Vec<f32> = vec![0.0, 1.0];
+        push_mono_frames(&input, 2, &buffer);
+        let buf = buffer.lock().unwrap();
+        assert_eq!(buf.len(), 1);
+        assert!((buf[0] - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn push_mono_frames_mono_passthrough() {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let input: Vec<f32> = vec![0.3, 0.7];
+        push_mono_frames(&input, 1, &buffer);
+        let buf = buffer.lock().unwrap();
+        assert_eq!(buf.len(), 2);
+        assert!((buf[0] - 0.3).abs() < f32::EPSILON);
+        assert!((buf[1] - 0.7).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn push_mono_frames_respects_buffer_cap() {
+        let buffer = Arc::new(Mutex::new(Vec::with_capacity(0)));
+        // Fill to exactly the cap.
+        {
+            let mut buf = buffer.lock().unwrap();
+            buf.resize(MAX_BUFFER_SAMPLES, 0.0);
+        }
+        // Further samples should be dropped.
+        let input: Vec<f32> = vec![1.0; 100];
+        push_mono_frames(&input, 1, &buffer);
+        let buf = buffer.lock().unwrap();
+        assert_eq!(buf.len(), MAX_BUFFER_SAMPLES);
     }
 }

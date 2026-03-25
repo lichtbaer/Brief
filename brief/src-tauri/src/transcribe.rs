@@ -239,4 +239,34 @@ mod tests {
         };
         assert!(!t.check_available());
     }
+
+    #[test]
+    fn with_language_empty_defaults_to_de() {
+        let t = Transcriber::new(None, None).with_language("");
+        assert_eq!(t.language, "de");
+    }
+
+    #[test]
+    fn with_language_trims_whitespace() {
+        let t = Transcriber::new(None, None).with_language("  en  ");
+        assert_eq!(t.language, "en");
+    }
+
+    #[test]
+    fn with_language_accepts_any_code() {
+        let t = Transcriber::new(None, None).with_language("fr");
+        assert_eq!(t.language, "fr");
+    }
+
+    #[test]
+    fn with_timeout_secs_clamps_zero_to_one() {
+        let t = Transcriber::new(None, None).with_timeout_secs(0);
+        assert_eq!(t.timeout_secs, 1);
+    }
+
+    #[test]
+    fn with_timeout_secs_preserves_valid_value() {
+        let t = Transcriber::new(None, None).with_timeout_secs(600);
+        assert_eq!(t.timeout_secs, 600);
+    }
 }

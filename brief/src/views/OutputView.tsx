@@ -11,7 +11,7 @@ import type {
   Topic,
 } from "../types";
 
-function safeExportBaseName(title: string): string {
+export function safeExportBaseName(title: string): string {
   const trimmed = title.replace(/[/\\?%*:|"<>]/g, "-").trim();
   return trimmed.length > 0 ? trimmed : "meeting";
 }

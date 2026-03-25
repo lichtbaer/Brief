@@ -710,3 +710,82 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    // -- safe_export_stem --
+
+    #[test]
+    fn safe_export_stem_normal_title() {
+        assert_eq!(safe_export_stem("Team Meeting".to_string()), "Team Meeting");
+    }
+
+    #[test]
+    fn safe_export_stem_empty_returns_fallback() {
+        assert_eq!(safe_export_stem("".to_string()), "meeting");
+    }
+
+    #[test]
+    fn safe_export_stem_whitespace_only_returns_fallback() {
+        assert_eq!(safe_export_stem("   ".to_string()), "meeting");
+    }
+
+    #[test]
+    fn safe_export_stem_replaces_unsafe_chars() {
+        assert_eq!(
+            safe_export_stem("File/With\\Special?Chars".to_string()),
+            "File-With-Special-Chars"
+        );
+        assert_eq!(safe_export_stem("a:b|c".to_string()), "a-b-c");
+        assert_eq!(safe_export_stem("x<y>z".to_string()), "x-y-z");
+    }
+
+    #[test]
+    fn safe_export_stem_truncates_at_80_chars() {
+        let long = "a".repeat(100);
+        let result = safe_export_stem(long);
+        assert_eq!(result.len(), 80);
+    }
+
+    #[test]
+    fn safe_export_stem_preserves_unicode() {
+        assert_eq!(safe_export_stem("Ü Ä Ö".to_string()), "Ü Ä Ö");
+    }
+
+    // -- resolve_orphan_wav_path --
+
+    #[test]
+    fn resolve_orphan_rejects_path_outside_temp() {
+        let outside = Path::new("/etc/passwd");
+        assert!(resolve_orphan_wav_path(outside).is_err());
+    }
+
+    #[test]
+    fn resolve_orphan_accepts_filename_only() {
+        // A bare filename should be resolved under the temp directory.
+        let result = resolve_orphan_wav_path(Path::new("brief_test123.wav"));
+        assert!(result.is_ok());
+        let resolved = result.unwrap();
+        assert!(resolved.starts_with(std::env::temp_dir()));
+    }
+
+    #[test]
+    fn resolve_orphan_accepts_file_in_temp_dir() {
+        let temp = std::env::temp_dir();
+        let test_file = temp.join("brief_resolve_test.wav");
+        // Create the file so canonicalize works.
+        std::fs::write(&test_file, b"test").ok();
+        let result = resolve_orphan_wav_path(&test_file);
+        let _ = std::fs::remove_file(&test_file);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn resolve_orphan_rejects_traversal() {
+        let traversal = std::env::temp_dir().join("../../../etc/passwd");
+        assert!(resolve_orphan_wav_path(&traversal).is_err());
+    }
+}
