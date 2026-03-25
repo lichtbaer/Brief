@@ -20,7 +20,7 @@ sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio", "macros"] }
 libsqlite3-sys = { version = "0.27", features = ["bundled-sqlcipher"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -28,7 +28,7 @@ keyring = "3"
 rand = "0.8"
 hex = "0.4"
 printpdf = "0.7"
-base64 = "0.21"
+base64 = "0.22"
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-os = "2"

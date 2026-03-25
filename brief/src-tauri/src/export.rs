@@ -93,33 +93,38 @@ pub fn generate_markdown(meeting: &serde_json::Value) -> String {
     md
 }
 
+/// Wraps a single line into multiple lines for PDF rendering.
+/// Uses a single `Vec<char>` buffer with index tracking to avoid O(n²) re-allocation.
 fn wrap_for_pdf(line: &str, max_chars: usize) -> Vec<String> {
     if line.is_empty() {
         return vec![String::new()];
     }
     let max_chars = max_chars.max(8);
+    let chars: Vec<char> = line.chars().collect();
+    let total = chars.len();
     let mut out: Vec<String> = Vec::new();
-    let mut rest = line.to_string();
-    while !rest.is_empty() {
-        let count = rest.chars().count();
-        if count <= max_chars {
-            out.push(rest);
+    let mut start = 0;
+
+    while start < total {
+        let remaining = total - start;
+        if remaining <= max_chars {
+            out.push(chars[start..].iter().collect());
             break;
         }
-        let chars: Vec<char> = rest.chars().collect();
+        let end = start + max_chars;
+        let slice = &chars[start..end];
         let mut cut = max_chars;
-        let slice: &[char] = &chars[..max_chars];
         if let Some(pos) = slice.iter().rposition(|&c| c == ' ') {
             if pos > max_chars / 4 {
                 cut = pos + 1;
             }
         }
-        let left: String = chars[..cut].iter().collect();
-        let right: String = chars[cut..].iter().collect();
-        out.push(left.trim_end().to_string());
-        rest = right.trim_start().to_string();
-        if rest.is_empty() {
-            break;
+        let segment: String = chars[start..start + cut].iter().collect();
+        out.push(segment.trim_end().to_string());
+        start += cut;
+        // Skip leading whitespace on the next line.
+        while start < total && chars[start] == ' ' {
+            start += 1;
         }
     }
     out

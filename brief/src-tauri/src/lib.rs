@@ -328,7 +328,7 @@ async fn check_orphaned_recordings(
     })])
 }
 
-/// Transcribes an orphaned temp WAV and saves a new meeting (`consulting`, recovery title).
+/// Transcribes an orphaned temp WAV and saves a new meeting (uses persisted default meeting type and a dated recovery title).
 #[tauri::command]
 async fn recover_orphaned_recording(
     audio_path: String,
@@ -342,10 +342,22 @@ async fn recover_orphaned_recording(
     let new_id = uuid::Uuid::new_v4().to_string();
     let date_str = chrono::Local::now().format("%Y-%m-%d").to_string();
     let title = format!("Recovered meeting {}", date_str);
+
+    // Use user's preferred default meeting type instead of hardcoded "consulting".
+    let meeting_type = {
+        let storage = state.storage.lock().await;
+        storage
+            .get_setting("default_meeting_type")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "consulting".to_string())
+    };
+
     process_meeting_inner(
         new_id,
         canonical.to_string_lossy().to_string(),
-        "consulting".to_string(),
+        meeting_type,
         Some(title),
         &state,
     )
