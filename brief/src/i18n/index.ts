@@ -5,7 +5,7 @@ import en from "./locales/en/common.json";
 
 const LOCALE_STORAGE_KEY = "brief.locale";
 
-function getStoredLanguage(): "de" | "en" {
+export function getStoredLanguage(): "de" | "en" {
   if (typeof window === "undefined") {
     return "de";
   }

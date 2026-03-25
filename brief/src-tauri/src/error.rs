@@ -154,4 +154,44 @@ mod tests {
         assert!(err.contains("m-42"));
         assert!(err.contains("Meeting not found"));
     }
+
+    #[test]
+    fn display_all_parameterized_variants_include_context() {
+        // Variants that carry a String parameter should include it in Display output.
+        let pairs: Vec<(AppError, &str)> = vec![
+            (AppError::SessionNotFound("sess-99".into()), "sess-99"),
+            (AppError::AudioNotFound("/tmp/x.wav".into()), "/tmp/x.wav"),
+            (AppError::TranscriptionFailed("timeout".into()), "timeout"),
+            (AppError::SummarizationFailed("refused".into()), "refused"),
+            (AppError::DatabaseError("locked".into()), "locked"),
+            (AppError::IoError("not found".into()), "not found"),
+            (AppError::MeetingNotFound("id-abc".into()), "id-abc"),
+            (AppError::TaskError("panicked".into()), "panicked"),
+        ];
+        for (err, expected_fragment) in pairs {
+            let s = err.to_string();
+            assert!(
+                s.contains(expected_fragment),
+                "Display of {:?} should contain '{}', got '{}'",
+                expected_fragment,
+                expected_fragment,
+                s
+            );
+        }
+    }
+
+    #[test]
+    fn display_special_chars_in_error_message() {
+        let msg = "path contains \"quotes\" and 'apostrophes'";
+        let err = AppError::IoError(msg.into());
+        let s = err.to_string();
+        assert!(s.contains(msg));
+    }
+
+    #[test]
+    fn display_empty_inner_message() {
+        let err = AppError::TranscriptionFailed(String::new());
+        let s = err.to_string();
+        assert!(s.contains("Transcription failed:"));
+    }
 }

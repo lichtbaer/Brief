@@ -86,7 +86,11 @@ export function OnboardingWizard({ onComplete }: Props) {
   };
 
   const complete = async () => {
-    await invoke("update_setting", { key: "onboarding_complete", value: "true" });
+    try {
+      await invoke("update_setting", { key: "onboarding_complete", value: "true" });
+    } catch {
+      // Best-effort: onboarding will re-appear next launch if persist fails.
+    }
     onComplete();
   };
 
@@ -241,10 +245,14 @@ export function OnboardingWizard({ onComplete }: Props) {
                 type="button"
                 className="meeting-type-choice"
                 onClick={async () => {
-                  await invoke("update_setting", {
-                    key: "default_meeting_type",
-                    value: type,
-                  });
+                  try {
+                    await invoke("update_setting", {
+                      key: "default_meeting_type",
+                      value: type,
+                    });
+                  } catch {
+                    // Best-effort: default meeting type will use fallback if persist fails.
+                  }
                   setStep("done");
                 }}
               >

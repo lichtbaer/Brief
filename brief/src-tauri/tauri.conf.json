@@ -13,13 +13,16 @@
     "windows": [
       {
         "title": "Brief",
-        "width": 800,
-        "height": 600
+        "width": 900,
+        "height": 700,
+        "minWidth": 600,
+        "minHeight": 400
       }
     ],
     "security": {
-      "csp": null
-    }
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https://asset.localhost; media-src 'self' asset: https://asset.localhost"
+    },
+    "withGlobalTauri": false
   },
   "bundle": {
     "active": true,
@@ -45,7 +48,7 @@
         "bundleMediaFramework": false
       },
       "deb": {
-        "depends": ["libwebkit2gtk-4.1-0", "libssl3"]
+        "depends": ["libwebkit2gtk-4.1-0", "libssl3", "libasound2"]
       }
     }
   }

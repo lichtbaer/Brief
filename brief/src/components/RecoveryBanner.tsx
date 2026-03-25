@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { TRANSCRIPTION_TIMEOUT_ERROR, type Meeting, type OrphanedRecording } from "../types";
+import { TRANSCRIPTION_TIMEOUT_ERROR, isMeeting, type Meeting, type OrphanedRecording } from "../types";
 
 type RecoveryBannerProps = {
   recording: OrphanedRecording;
@@ -31,7 +31,8 @@ export function RecoveryBanner({
       const raw = await invoke<string>("recover_orphaned_recording", {
         audioPath: recording.path,
       });
-      const meeting = JSON.parse(raw) as Meeting;
+      const meeting = JSON.parse(raw) as unknown;
+      if (!isMeeting(meeting)) throw new Error("Invalid meeting data");
       onRecovered(meeting);
     } catch (err) {
       const raw = String(err);

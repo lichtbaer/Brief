@@ -93,33 +93,38 @@ pub fn generate_markdown(meeting: &serde_json::Value) -> String {
     md
 }
 
+/// Wraps a single line into multiple lines for PDF rendering.
+/// Uses a single `Vec<char>` buffer with index tracking to avoid O(n²) re-allocation.
 fn wrap_for_pdf(line: &str, max_chars: usize) -> Vec<String> {
     if line.is_empty() {
         return vec![String::new()];
     }
     let max_chars = max_chars.max(8);
+    let chars: Vec<char> = line.chars().collect();
+    let total = chars.len();
     let mut out: Vec<String> = Vec::new();
-    let mut rest = line.to_string();
-    while !rest.is_empty() {
-        let count = rest.chars().count();
-        if count <= max_chars {
-            out.push(rest);
+    let mut start = 0;
+
+    while start < total {
+        let remaining = total - start;
+        if remaining <= max_chars {
+            out.push(chars[start..].iter().collect());
             break;
         }
-        let chars: Vec<char> = rest.chars().collect();
+        let end = start + max_chars;
+        let slice = &chars[start..end];
         let mut cut = max_chars;
-        let slice: &[char] = &chars[..max_chars];
         if let Some(pos) = slice.iter().rposition(|&c| c == ' ') {
             if pos > max_chars / 4 {
                 cut = pos + 1;
             }
         }
-        let left: String = chars[..cut].iter().collect();
-        let right: String = chars[cut..].iter().collect();
-        out.push(left.trim_end().to_string());
-        rest = right.trim_start().to_string();
-        if rest.is_empty() {
-            break;
+        let segment: String = chars[start..start + cut].iter().collect();
+        out.push(segment.trim_end().to_string());
+        start += cut;
+        // Skip leading whitespace on the next line.
+        while start < total && chars[start] == ' ' {
+            start += 1;
         }
     }
     out
@@ -352,5 +357,95 @@ mod tests {
         let bytes = generate_pdf("").expect("Empty PDF should still succeed");
         assert!(bytes.len() > 50);
         assert_eq!(&bytes[..5], b"%PDF-");
+    }
+
+    // -- Additional edge cases --
+
+    #[test]
+    fn markdown_with_special_markdown_chars_in_fields() {
+        let meeting = json!({
+            "title": "Meeting with *bold* and `code`",
+            "created_at": "2025-01-01T00:00:00Z",
+            "meeting_type": "consulting",
+            "output": {
+                "summary_short": "Summary with [link](url) and **bold**",
+                "topics": [{ "title": "Topic with # heading", "summary": "Details with > quote" }],
+                "decisions": [{ "description": "Decision with `backticks`" }],
+                "action_items": [],
+                "follow_up_draft": {},
+                "participants_mentioned": []
+            }
+        });
+        let md = generate_markdown(&meeting);
+        // Should not crash and should preserve the raw content.
+        assert!(md.contains("*bold*"));
+        assert!(md.contains("`code`"));
+        assert!(md.contains("# heading"));
+    }
+
+    #[test]
+    fn markdown_with_unicode_emoji_in_fields() {
+        let meeting = json!({
+            "title": "Sprint 🚀",
+            "created_at": "2025-01-01T00:00:00Z",
+            "meeting_type": "internal",
+            "output": {
+                "summary_short": "Team morale is high 💪",
+                "topics": [],
+                "decisions": [],
+                "action_items": [{ "description": "Celebrate 🎉", "owner": "Everyone", "due_date": null, "priority": null }],
+                "follow_up_draft": {},
+                "participants_mentioned": ["Ünsal", "José"]
+            }
+        });
+        let md = generate_markdown(&meeting);
+        assert!(md.contains("Sprint 🚀"));
+        assert!(md.contains("💪"));
+        assert!(md.contains("🎉"));
+        assert!(md.contains("Ünsal"));
+    }
+
+    #[test]
+    fn wrap_for_pdf_word_longer_than_max_chars() {
+        let long_word = "a".repeat(50);
+        let lines = wrap_for_pdf(&long_word, 20);
+        // Must not loop infinitely; should produce at least one line.
+        assert!(!lines.is_empty());
+        // The first line should contain at most max_chars.
+        assert!(lines[0].chars().count() <= 20);
+    }
+
+    #[test]
+    fn wrap_for_pdf_multiple_spaces() {
+        let input = "word1    word2    word3";
+        let lines = wrap_for_pdf(input, 95);
+        // Short enough to fit in one line.
+        assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn wrap_for_pdf_unicode_line() {
+        let input = "Ärztlicher Beratungsgespräch über Überweisung zum Facharzt für Hals-Nasen-Ohren-Heilkunde";
+        let lines = wrap_for_pdf(input, 40);
+        assert!(lines.len() > 1);
+        for line in &lines {
+            assert!(line.chars().count() <= 40, "Line too long: {line}");
+        }
+    }
+
+    #[test]
+    fn generate_pdf_with_headings() {
+        let md = "# Title\n\n## Section\n\nSome text.\n\n### Subsection\n\nMore text.";
+        let bytes = generate_pdf(md).expect("PDF with headings should work");
+        assert_eq!(&bytes[..5], b"%PDF-");
+    }
+
+    #[test]
+    fn generate_pdf_with_long_content() {
+        // Simulate ~5 pages of text.
+        let paragraph = "This is a paragraph of text for testing. ".repeat(50);
+        let md = format!("# Long Document\n\n{}", paragraph.repeat(5));
+        let bytes = generate_pdf(&md).expect("Long PDF should succeed");
+        assert!(bytes.len() > 1000);
     }
 }

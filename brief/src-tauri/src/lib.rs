@@ -328,7 +328,7 @@ async fn check_orphaned_recordings(
     })])
 }
 
-/// Transcribes an orphaned temp WAV and saves a new meeting (`consulting`, recovery title).
+/// Transcribes an orphaned temp WAV and saves a new meeting (uses persisted default meeting type and a dated recovery title).
 #[tauri::command]
 async fn recover_orphaned_recording(
     audio_path: String,
@@ -342,10 +342,22 @@ async fn recover_orphaned_recording(
     let new_id = uuid::Uuid::new_v4().to_string();
     let date_str = chrono::Local::now().format("%Y-%m-%d").to_string();
     let title = format!("Recovered meeting {}", date_str);
+
+    // Use user's preferred default meeting type instead of hardcoded "consulting".
+    let meeting_type = {
+        let storage = state.storage.lock().await;
+        storage
+            .get_setting("default_meeting_type")
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_else(|| "consulting".to_string())
+    };
+
     process_meeting_inner(
         new_id,
         canonical.to_string_lossy().to_string(),
-        "consulting".to_string(),
+        meeting_type,
         Some(title),
         &state,
     )
@@ -358,6 +370,15 @@ async fn discard_orphaned_recording(audio_path: String) -> Result<(), String> {
     let path = PathBuf::from(&audio_path);
     let canonical = resolve_orphan_wav_path(&path)?;
     std::fs::remove_file(&canonical).map_err(|e| AppError::IoError(e.to_string()).into())
+}
+
+/// Fetches and parses a meeting as JSON value — shared helper to avoid duplicating the fetch+parse pattern.
+async fn fetch_meeting_value(storage: &Storage, id: &str) -> Result<serde_json::Value, String> {
+    let json = storage
+        .get_meeting(id)
+        .await?
+        .ok_or_else(|| AppError::MeetingNotFound(id.to_string()).to_string())?;
+    serde_json::from_str(&json).map_err(|e| AppError::IoError(e.to_string()).to_string())
 }
 
 /// Loads a meeting by id from the database or returns an error string if not found.
@@ -374,12 +395,7 @@ async fn get_meeting(id: String, state: tauri::State<'_, AppState>) -> Result<St
 #[tauri::command]
 async fn export_markdown(id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
     let storage = state.storage.lock().await;
-    let meeting_json = storage
-        .get_meeting(&id)
-        .await?
-        .ok_or_else(|| AppError::MeetingNotFound(id).to_string())?;
-    let meeting: serde_json::Value =
-        serde_json::from_str(&meeting_json).map_err(|e| AppError::IoError(e.to_string()))?;
+    let meeting = fetch_meeting_value(&storage, &id).await?;
     Ok(export::generate_markdown(&meeting))
 }
 
@@ -387,12 +403,7 @@ async fn export_markdown(id: String, state: tauri::State<'_, AppState>) -> Resul
 #[tauri::command]
 async fn export_pdf(id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
     let storage = state.storage.lock().await;
-    let meeting_json = storage
-        .get_meeting(&id)
-        .await?
-        .ok_or_else(|| AppError::MeetingNotFound(id).to_string())?;
-    let meeting: serde_json::Value =
-        serde_json::from_str(&meeting_json).map_err(|e| AppError::IoError(e.to_string()))?;
+    let meeting = fetch_meeting_value(&storage, &id).await?;
     let markdown = export::generate_markdown(&meeting);
     let bytes = export::generate_pdf(&markdown)?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
@@ -500,12 +511,7 @@ async fn check_ollama() -> Result<serde_json::Value, String> {
 #[tauri::command]
 async fn get_audio_path(id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
     let storage = state.storage.lock().await;
-    let meeting_json = storage
-        .get_meeting(&id)
-        .await?
-        .ok_or_else(|| AppError::MeetingNotFound(id.clone()).to_string())?;
-    let meeting: serde_json::Value =
-        serde_json::from_str(&meeting_json).map_err(|e| AppError::IoError(e.to_string()))?;
+    let meeting = fetch_meeting_value(&storage, &id).await?;
     let Some(audio_path) = meeting["audio_path"].as_str() else {
         return Err(AppError::AudioNotFound(id).into());
     };
@@ -525,12 +531,7 @@ async fn export_audio(
 ) -> Result<String, String> {
     let (src, default_name) = {
         let storage = state.storage.lock().await;
-        let meeting_json = storage
-            .get_meeting(&id)
-            .await?
-            .ok_or_else(|| AppError::MeetingNotFound(id.clone()).to_string())?;
-        let meeting: serde_json::Value =
-            serde_json::from_str(&meeting_json).map_err(|e| AppError::IoError(e.to_string()))?;
+        let meeting = fetch_meeting_value(&storage, &id).await?;
         let audio_path = meeting["audio_path"]
             .as_str()
             .ok_or(AppError::AudioNotFound(id))?;
@@ -720,4 +721,83 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    // -- safe_export_stem --
+
+    #[test]
+    fn safe_export_stem_normal_title() {
+        assert_eq!(safe_export_stem("Team Meeting".to_string()), "Team Meeting");
+    }
+
+    #[test]
+    fn safe_export_stem_empty_returns_fallback() {
+        assert_eq!(safe_export_stem("".to_string()), "meeting");
+    }
+
+    #[test]
+    fn safe_export_stem_whitespace_only_returns_fallback() {
+        assert_eq!(safe_export_stem("   ".to_string()), "meeting");
+    }
+
+    #[test]
+    fn safe_export_stem_replaces_unsafe_chars() {
+        assert_eq!(
+            safe_export_stem("File/With\\Special?Chars".to_string()),
+            "File-With-Special-Chars"
+        );
+        assert_eq!(safe_export_stem("a:b|c".to_string()), "a-b-c");
+        assert_eq!(safe_export_stem("x<y>z".to_string()), "x-y-z");
+    }
+
+    #[test]
+    fn safe_export_stem_truncates_at_80_chars() {
+        let long = "a".repeat(100);
+        let result = safe_export_stem(long);
+        assert_eq!(result.len(), 80);
+    }
+
+    #[test]
+    fn safe_export_stem_preserves_unicode() {
+        assert_eq!(safe_export_stem("Ü Ä Ö".to_string()), "Ü Ä Ö");
+    }
+
+    // -- resolve_orphan_wav_path --
+
+    #[test]
+    fn resolve_orphan_rejects_path_outside_temp() {
+        let outside = Path::new("/etc/passwd");
+        assert!(resolve_orphan_wav_path(outside).is_err());
+    }
+
+    #[test]
+    fn resolve_orphan_accepts_filename_only() {
+        // A bare filename should be resolved under the temp directory.
+        let result = resolve_orphan_wav_path(Path::new("brief_test123.wav"));
+        assert!(result.is_ok());
+        let resolved = result.unwrap();
+        assert!(resolved.starts_with(std::env::temp_dir()));
+    }
+
+    #[test]
+    fn resolve_orphan_accepts_file_in_temp_dir() {
+        let temp = std::env::temp_dir();
+        let test_file = temp.join("brief_resolve_test.wav");
+        // Create the file so canonicalize works.
+        std::fs::write(&test_file, b"test").ok();
+        let result = resolve_orphan_wav_path(&test_file);
+        let _ = std::fs::remove_file(&test_file);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn resolve_orphan_rejects_traversal() {
+        let traversal = std::env::temp_dir().join("../../../etc/passwd");
+        assert!(resolve_orphan_wav_path(&traversal).is_err());
+    }
 }

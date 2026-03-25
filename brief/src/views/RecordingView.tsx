@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { TRANSCRIPTION_TIMEOUT_ERROR, type Meeting, type MeetingType } from "../types";
+import { TRANSCRIPTION_TIMEOUT_ERROR, isMeeting, type Meeting, type MeetingType } from "../types";
 
 type AppStatus = "idle" | "recording" | "processing" | "done" | "error";
 type ProcessingStep = "transcribing" | "summarizing";
@@ -11,10 +11,56 @@ interface RecordingViewProps {
   onMeetingDone?: (meeting: Meeting) => void;
 }
 
-function formatTime(seconds: number): string {
+export function formatTime(seconds: number): string {
   const m = String(Math.floor(seconds / 60)).padStart(2, "0");
   const s = String(seconds % 60).padStart(2, "0");
   return `${m}:${s}`;
+}
+
+// -- Consolidated recording state via useReducer --
+
+interface RecordingState {
+  status: AppStatus;
+  sessionId: string | null;
+  error: string | null;
+  meeting: Meeting | null;
+  processingStep: ProcessingStep | null;
+}
+
+type RecordingAction =
+  | { type: "START_RECORDING"; sessionId: string }
+  | { type: "START_PROCESSING" }
+  | { type: "PROCESSING_DONE"; meeting: Meeting }
+  | { type: "ERROR"; error: string }
+  | { type: "SET_PROCESSING_STEP"; step: ProcessingStep }
+  | { type: "CLEAR_SESSION" }
+  | { type: "RESET" };
+
+export const initialState: RecordingState = {
+  status: "idle",
+  sessionId: null,
+  error: null,
+  meeting: null,
+  processingStep: null,
+};
+
+export function recordingReducer(state: RecordingState, action: RecordingAction): RecordingState {
+  switch (action.type) {
+    case "START_RECORDING":
+      return { ...initialState, status: "recording", sessionId: action.sessionId };
+    case "START_PROCESSING":
+      return { ...state, status: "processing", sessionId: null, error: null, processingStep: "transcribing" };
+    case "PROCESSING_DONE":
+      return { ...state, status: "done", meeting: action.meeting, processingStep: null };
+    case "ERROR":
+      return { ...state, status: "error", error: action.error, sessionId: null, processingStep: null };
+    case "SET_PROCESSING_STEP":
+      return { ...state, processingStep: action.step };
+    case "CLEAR_SESSION":
+      return { ...state, sessionId: null };
+    case "RESET":
+      return initialState;
+  }
 }
 
 /**
@@ -26,15 +72,13 @@ function formatTime(seconds: number): string {
  */
 export function RecordingView({ onMeetingDone }: RecordingViewProps) {
   const { t } = useTranslation();
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [status, setStatus] = useState<AppStatus>("idle");
-  const [error, setError] = useState<string | null>(null);
-  const [meeting, setMeeting] = useState<Meeting | null>(null);
+  const [state, dispatch] = useReducer(recordingReducer, initialState);
   const [meetingType, setMeetingType] = useState<MeetingType>("consulting");
   const [meetingLanguage, setMeetingLanguage] = useState<string>("de");
   const [elapsed, setElapsed] = useState(0);
   const [processingElapsed, setProcessingElapsed] = useState(0);
-  const [processingStep, setProcessingStep] = useState<ProcessingStep | null>(null);
+
+  const { status, sessionId, error, meeting, processingStep } = state;
 
   // Load persisted meeting language (WhisperX) — independent of UI locale.
   useEffect(() => {
@@ -61,13 +105,12 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
 
     if (status === "processing") {
       setProcessingElapsed(0);
-      setProcessingStep("transcribing");
 
       const id = setInterval(() => {
         setProcessingElapsed((s) => {
           // Switch the step hint once processing exceeds 8 seconds (heuristic:
           // WhisperX typically finishes within this window on modern hardware).
-          if (s + 1 >= 8) setProcessingStep("summarizing");
+          if (s + 1 >= 8) dispatch({ type: "SET_PROCESSING_STEP", step: "summarizing" });
           return s + 1;
         });
       }, 1000);
@@ -77,72 +120,56 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
 
     // Reset processing state when neither recording nor processing.
     setProcessingElapsed(0);
-    setProcessingStep(null);
   }, [status]);
 
-  const reset = () => {
-    setError(null);
-    setMeeting(null);
-    setSessionId(null);
-    setStatus("idle");
-  };
-
   const processMeeting = async (sid: string, audioPath: string) => {
-    setStatus("processing");
+    dispatch({ type: "START_PROCESSING" });
     try {
       const result = await invoke<string>("process_meeting", {
         sessionId: sid,
         audioPath: audioPath,
         meetingType: meetingType,
       });
-      const parsed = JSON.parse(result) as Meeting;
+      const parsed = JSON.parse(result) as unknown;
+      if (!isMeeting(parsed)) throw new Error("Invalid meeting data from backend");
       if (onMeetingDone) {
         onMeetingDone(parsed);
-        reset();
+        dispatch({ type: "RESET" });
       } else {
-        setMeeting(parsed);
-        setStatus("done");
+        dispatch({ type: "PROCESSING_DONE", meeting: parsed });
       }
     } catch (err) {
       const raw = String(err);
-      setError(
-        raw.includes(TRANSCRIPTION_TIMEOUT_ERROR)
+      dispatch({
+        type: "ERROR",
+        error: raw.includes(TRANSCRIPTION_TIMEOUT_ERROR)
           ? t("errors.transcription_timeout")
           : raw,
-      );
-      setStatus("error");
+      });
     }
   };
 
   const startRecording = async () => {
-    setError(null);
-    setMeeting(null);
     try {
       const id = await invoke<string>("start_recording", {
         meetingType: meetingType,
       });
-      setSessionId(id);
-      setStatus("recording");
+      dispatch({ type: "START_RECORDING", sessionId: id });
     } catch (e) {
-      setError(String(e));
-      setStatus("error");
+      dispatch({ type: "ERROR", error: String(e) });
     }
   };
 
   const stopAndProcess = async () => {
     if (!sessionId) return;
-    setError(null);
     const currentSessionId = sessionId;
     try {
       const path = await invoke<string>("stop_recording", {
         sessionId: currentSessionId,
       });
-      setSessionId(null);
       await processMeeting(currentSessionId, path);
     } catch (e) {
-      setError(String(e));
-      setStatus("error");
-      setSessionId(null);
+      dispatch({ type: "ERROR", error: String(e) });
     }
   };
 
@@ -156,7 +183,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
       return;
     }
     if (status === "done" || status === "error") {
-      reset();
+      dispatch({ type: "RESET" });
     }
   };
 
@@ -216,12 +243,12 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
               onChange={(e) => {
                 const v = e.target.value;
                 setMeetingLanguage(v);
-                void invoke("update_setting", { key: "meeting_language", value: v });
+                void invoke("update_setting", { key: "meeting_language", value: v }).catch(() => {});
               }}
               style={{ maxWidth: "14rem" }}
             >
-              <option value="de">Deutsch</option>
-              <option value="en">English</option>
+              <option value="de">{t("languages.de")}</option>
+              <option value="en">{t("languages.en")}</option>
             </select>
           </div>
         </>

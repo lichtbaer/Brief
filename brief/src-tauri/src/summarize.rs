@@ -41,7 +41,7 @@ impl Summarizer {
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(300))
             .build()
-            .map_err(|e| format!("HTTP-Client-Fehler: {}", e))?;
+            .map_err(|e| format!("HTTP client error: {}", e))?;
         Ok(Summarizer {
             client,
             ollama_url: ollama_url.unwrap_or_else(|| DEFAULT_OLLAMA_URL.to_string()),
@@ -88,7 +88,7 @@ impl Summarizer {
             .json(&request)
             .send()
             .await
-            .map_err(|e| format!("Ollama not reachable: {}", e))?;
+            .map_err(|_| "Ollama not reachable — is `ollama serve` running?".to_string())?;
 
         if !response.status().is_success() {
             return Err(format!("Ollama error: HTTP {}", response.status()));
@@ -97,7 +97,7 @@ impl Summarizer {
         let result: OllamaChatResponse = response
             .json()
             .await
-            .map_err(|e| format!("Ollama response not parsable: {}", e))?;
+            .map_err(|_| "Ollama response could not be parsed".to_string())?;
 
         parse_meeting_output(&result.message.content, meeting_type, &self.model)
     }
@@ -245,5 +245,52 @@ mod tests {
 "#;
         let out = parse_meeting_output(raw, "consulting", "m").unwrap();
         assert_eq!(out.summary_short, "Padded");
+    }
+
+    #[test]
+    fn parse_null_summary_short_becomes_empty() {
+        let raw = r#"{"summary_short":null}"#;
+        let out = parse_meeting_output(raw, "consulting", "m").unwrap();
+        assert_eq!(out.summary_short, "");
+    }
+
+    #[test]
+    fn parse_unicode_emoji_in_participants() {
+        let raw = r#"{"summary_short":"s","participants_mentioned":["Ünsal 🧑‍💻","José"]}"#;
+        let out = parse_meeting_output(raw, "consulting", "m").unwrap();
+        assert_eq!(out.participants_mentioned.len(), 2);
+        assert!(out.participants_mentioned[0].contains("Ünsal"));
+    }
+
+    #[test]
+    fn parse_generated_at_is_rfc3339() {
+        let raw = r#"{"summary_short":"s"}"#;
+        let out = parse_meeting_output(raw, "internal", "m").unwrap();
+        assert!(out.generated_at.contains('T'), "Should be RFC3339");
+        assert!(!out.generated_at.is_empty());
+    }
+
+    #[test]
+    fn parse_model_and_template_passthrough() {
+        let raw = r#"{"summary_short":"s"}"#;
+        let out = parse_meeting_output(raw, "legal", "llama3.1:70b").unwrap();
+        assert_eq!(out.template_used, "legal");
+        assert_eq!(out.model_used, "llama3.1:70b");
+    }
+
+    #[test]
+    fn parse_topics_with_nested_objects() {
+        let raw = r#"{"summary_short":"s","topics":[{"title":"T1","summary":"S1","extra_field":"ignored"}]}"#;
+        let out = parse_meeting_output(raw, "consulting", "m").unwrap();
+        assert_eq!(out.topics.len(), 1);
+        assert_eq!(out.topics[0]["title"], "T1");
+    }
+
+    #[test]
+    fn parse_decisions_with_context() {
+        let raw = r#"{"summary_short":"s","decisions":[{"description":"D1","context":"Approved by CEO"}]}"#;
+        let out = parse_meeting_output(raw, "consulting", "m").unwrap();
+        assert_eq!(out.decisions.len(), 1);
+        assert_eq!(out.decisions[0]["context"], "Approved by CEO");
     }
 }

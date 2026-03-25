@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import i18n from "../i18n";
 import type { AppSettingsSnapshot, PersistedSettings } from "../types";
 
-const DEFAULTS: PersistedSettings = {
+export const DEFAULTS: PersistedSettings = {
   ollama_url: "http://localhost:11434",
   llm_model: "llama3.1:8b",
   default_meeting_type: "consulting",
@@ -15,7 +15,7 @@ const DEFAULTS: PersistedSettings = {
   whisperx_timeout_secs: "900",
 };
 
-function mergeSettings(raw: Record<string, string>): PersistedSettings {
+export function mergeSettings(raw: Record<string, string>): PersistedSettings {
   return {
     ollama_url: raw.ollama_url ?? DEFAULTS.ollama_url,
     llm_model: raw.llm_model ?? DEFAULTS.llm_model,
@@ -56,7 +56,12 @@ export function SettingsView() {
   }, []);
 
   const updateSetting = async (key: keyof PersistedSettings, value: string) => {
-    await invoke("update_setting", { key, value });
+    try {
+      await invoke("update_setting", { key, value });
+    } catch (e) {
+      console.error(`Failed to update setting "${key}":`, e);
+      return;
+    }
     setSettings((prev) => (prev ? { ...prev, [key]: value } : prev));
 
     if (key === "llm_model") {
@@ -165,8 +170,8 @@ export function SettingsView() {
             onChange={(e) => void updateSetting("meeting_language", e.target.value)}
             style={{ maxWidth: "14rem" }}
           >
-            <option value="de">Deutsch</option>
-            <option value="en">English</option>
+            <option value="de">{t("languages.de")}</option>
+            <option value="en">{t("languages.en")}</option>
           </select>
         </div>
 
@@ -240,8 +245,8 @@ export function SettingsView() {
             onChange={(e) => void updateSetting("ui_language", e.target.value)}
             style={{ maxWidth: "14rem" }}
           >
-            <option value="de">Deutsch</option>
-            <option value="en">English</option>
+            <option value="de">{t("languages.de")}</option>
+            <option value="en">{t("languages.en")}</option>
           </select>
         </div>
 

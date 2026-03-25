@@ -147,4 +147,65 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn session_id_from_empty_string() {
+        assert_eq!(session_id_from_wav_filename(""), None);
+    }
+
+    #[test]
+    fn session_id_from_only_extension() {
+        assert_eq!(session_id_from_wav_filename(".wav"), None);
+    }
+
+    #[test]
+    fn session_id_preserves_case() {
+        // UUIDs are case-insensitive but our function should preserve the original case.
+        let lower = "550e8400-e29b-41d4-a716-446655440000";
+        assert_eq!(
+            session_id_from_wav_filename(&format!("brief_{lower}.wav")),
+            Some(lower.to_string())
+        );
+    }
+
+    #[test]
+    fn session_id_rejects_partial_uuid() {
+        // Not enough sections for a valid UUID.
+        assert_eq!(session_id_from_wav_filename("brief_550e8400-e29b.wav"), None);
+    }
+
+    #[test]
+    fn find_orphaned_empty_directory() {
+        let dir = std::env::temp_dir().join("brief_recovery_test_empty");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let orphans = find_orphaned_wav_files(&dir, &HashSet::new(), &HashSet::new());
+        assert!(orphans.is_empty());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_orphaned_returns_newest_first() {
+        let dir = std::env::temp_dir().join("brief_recovery_test_sort");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let uuid_old = "550e8400-e29b-41d4-a716-446655440010";
+        let uuid_new = "550e8400-e29b-41d4-a716-446655440011";
+
+        std::fs::write(dir.join(format!("brief_{uuid_old}.wav")), b"old").unwrap();
+        // Small delay to ensure different mtime.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(dir.join(format!("brief_{uuid_new}.wav")), b"new").unwrap();
+
+        let orphans = find_orphaned_wav_files(&dir, &HashSet::new(), &HashSet::new());
+        assert_eq!(orphans.len(), 2);
+        // Newest should be first.
+        let first_name = orphans[0].file_name().unwrap().to_str().unwrap();
+        assert!(first_name.contains(uuid_new), "Newest file should be first");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

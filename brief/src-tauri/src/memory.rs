@@ -68,4 +68,14 @@ mod tests {
         assert_eq!(recommended_llm_model(16.0), "llama3.1:8b");
         assert_eq!(recommended_llm_model(32.0), "llama3.1:8b");
     }
+
+    #[test]
+    fn recommended_zero_ram_uses_small_model() {
+        assert_eq!(recommended_llm_model(0.0), "llama3.2:3b");
+    }
+
+    #[test]
+    fn recommended_very_high_ram_uses_8b() {
+        assert_eq!(recommended_llm_model(128.0), "llama3.1:8b");
+    }
 }

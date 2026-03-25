@@ -56,3 +56,46 @@ impl MeetingOutput {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn placeholder_stores_meeting_type() {
+        let p = MeetingOutput::placeholder("legal");
+        assert_eq!(p.template_used, "legal");
+    }
+
+    #[test]
+    fn placeholder_model_is_none() {
+        let p = MeetingOutput::placeholder("consulting");
+        assert_eq!(p.model_used, "none");
+    }
+
+    #[test]
+    fn placeholder_summary_contains_fallback_text() {
+        let p = MeetingOutput::placeholder("internal");
+        assert!(
+            p.summary_short.contains("not available"),
+            "Fallback summary should mention unavailability"
+        );
+    }
+
+    #[test]
+    fn placeholder_generated_at_is_nonempty_rfc3339() {
+        let p = MeetingOutput::placeholder("consulting");
+        assert!(!p.generated_at.is_empty());
+        // RFC3339 contains 'T' separator and timezone.
+        assert!(p.generated_at.contains('T'));
+    }
+
+    #[test]
+    fn placeholder_collections_are_empty() {
+        let p = MeetingOutput::placeholder("consulting");
+        assert!(p.topics.is_empty());
+        assert!(p.decisions.is_empty());
+        assert!(p.action_items.is_empty());
+        assert!(p.participants_mentioned.is_empty());
+    }
+}
