@@ -33,7 +33,7 @@ function SkeletonCards() {
  * @param props.onOpenMeeting — parent handles navigation to detail/output.
  */
 export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [meetings, setMeetings] = useState<MeetingSummary[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
@@ -69,8 +69,12 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
     }
   };
 
+  // Derive the date locale from the current UI language so dates respect the
+  // user's language preference instead of always showing German formatting.
+  const dateLocale = i18n.language === "en" ? "en-GB" : "de-DE";
+
   const formatDate = (iso: string) =>
-    new Date(iso).toLocaleDateString("de-DE", {
+    new Date(iso).toLocaleDateString(dateLocale, {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
