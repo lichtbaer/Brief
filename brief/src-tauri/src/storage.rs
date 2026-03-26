@@ -3,6 +3,7 @@
 use crate::types::{Meeting, MeetingOutput};
 use serde_json::json;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use sqlx::Acquire;
 use sqlx::Row;
 use std::path::Path;
 
