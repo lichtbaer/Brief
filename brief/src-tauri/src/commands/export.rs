@@ -1,7 +1,7 @@
 //! Tauri commands for exporting meetings as Markdown, PDF, or WAV audio.
 
 use crate::error::AppError;
-use crate::types::AppState;
+use crate::state::AppState;
 use base64::Engine as _;
 use std::path::PathBuf;
 use tauri_plugin_dialog::DialogExt;

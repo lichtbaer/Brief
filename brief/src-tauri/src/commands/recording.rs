@@ -2,7 +2,7 @@
 
 use crate::audio::AudioRecorder;
 use crate::error::AppError;
-use crate::types::AppState;
+use crate::state::AppState;
 use std::collections::HashSet;
 
 /// RAII guard that marks a `session_id` as processing until dropped, so orphan detection skips the temp WAV.

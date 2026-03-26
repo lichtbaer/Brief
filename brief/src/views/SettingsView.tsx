@@ -2,9 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import i18n from "../i18n";
-import type { AppSettingsSnapshot, PersistedSettings } from "../types";
+import type { AppSettingsSnapshot, PersistedSettings, SettingDefaults } from "../types";
 
-export const DEFAULTS: PersistedSettings = {
+// Hardcoded fallback only used until the backend command resolves (first render).
+const FALLBACK_DEFAULTS: PersistedSettings = {
   ollama_url: "http://localhost:11434",
   llm_model: "llama3.1:8b",
   default_meeting_type: "consulting",
@@ -15,18 +16,23 @@ export const DEFAULTS: PersistedSettings = {
   whisperx_timeout_secs: "900",
 };
 
-export function mergeSettings(raw: Record<string, string>): PersistedSettings {
+/** Merges raw DB settings with defaults from the Rust backend (single source of truth). */
+export function mergeSettings(raw: Record<string, string>, defaults?: SettingDefaults): PersistedSettings {
+  const d = defaults ?? FALLBACK_DEFAULTS;
   return {
-    ollama_url: raw.ollama_url ?? DEFAULTS.ollama_url,
-    llm_model: raw.llm_model ?? DEFAULTS.llm_model,
-    default_meeting_type: raw.default_meeting_type ?? DEFAULTS.default_meeting_type,
-    meeting_language: raw.meeting_language ?? DEFAULTS.meeting_language,
-    retain_audio: raw.retain_audio ?? DEFAULTS.retain_audio,
-    retention_days: raw.retention_days ?? DEFAULTS.retention_days,
-    ui_language: raw.ui_language ?? DEFAULTS.ui_language,
-    whisperx_timeout_secs: raw.whisperx_timeout_secs ?? DEFAULTS.whisperx_timeout_secs,
+    ollama_url: raw.ollama_url ?? d.ollama_url,
+    llm_model: raw.llm_model ?? d.llm_model,
+    default_meeting_type: raw.default_meeting_type ?? d.default_meeting_type,
+    meeting_language: raw.meeting_language ?? d.meeting_language,
+    retain_audio: raw.retain_audio ?? d.retain_audio,
+    retention_days: raw.retention_days ?? d.retention_days,
+    ui_language: raw.ui_language ?? d.ui_language,
+    whisperx_timeout_secs: raw.whisperx_timeout_secs ?? d.whisperx_timeout_secs,
   };
 }
+
+/** @deprecated Use `mergeSettings` with backend defaults instead. Re-exported for test compatibility. */
+export const DEFAULTS = FALLBACK_DEFAULTS;
 
 /**
  * Persists app and AI settings (Ollama URL, models, WhisperX timeout, retain audio, UI language) via `get_all_settings` / `update_setting`.
@@ -37,16 +43,16 @@ export function SettingsView() {
   const [settings, setSettings] = useState<PersistedSettings | null>(null);
   const [snapshot, setSnapshot] = useState<AppSettingsSnapshot | null>(null);
   const [saved, setSaved] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   useEffect(() => {
     void Promise.all([
-      invoke<string>("get_all_settings").then((r) =>
-        mergeSettings(JSON.parse(r) as Record<string, string>),
-      ),
+      invoke<string>("get_all_settings"),
       invoke<AppSettingsSnapshot>("get_app_settings_snapshot"),
+      invoke<SettingDefaults>("get_setting_defaults"),
     ])
-      .then(([s, snap]) => {
-        setSettings(s);
+      .then(([raw, snap, defaults]) => {
+        setSettings(mergeSettings(JSON.parse(raw) as Record<string, string>, defaults));
         setSnapshot(snap);
       })
       .catch(() => {
@@ -59,7 +65,8 @@ export function SettingsView() {
     try {
       await invoke("update_setting", { key, value });
     } catch (e) {
-      console.error(`Failed to update setting "${key}":`, e);
+      setSettingsError(String(e));
+      setTimeout(() => setSettingsError(null), 5000);
       return;
     }
     setSettings((prev) => (prev ? { ...prev, [key]: value } : prev));
@@ -100,6 +107,12 @@ export function SettingsView() {
           </span>
         )}
       </div>
+
+      {settingsError && (
+        <div className="alert alert-error" role="alert" style={{ marginBottom: "1rem" }}>
+          <span>{t("errors.alert", { message: settingsError })}</span>
+        </div>
+      )}
 
       {snapshot && (
         <p style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", marginBottom: "1.5rem" }}>
@@ -183,7 +196,7 @@ export function SettingsView() {
             id="whisperx-timeout-secs"
             type="number"
             className="form-input"
-            value={settings.whisperx_timeout_secs ?? DEFAULTS.whisperx_timeout_secs}
+            value={settings.whisperx_timeout_secs ?? FALLBACK_DEFAULTS.whisperx_timeout_secs}
             min={60}
             max={86400}
             onChange={(e) => void updateSetting("whisperx_timeout_secs", e.target.value)}

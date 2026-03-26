@@ -5,10 +5,12 @@
 mod audio;
 mod commands;
 mod crypto_key;
+mod defaults;
 mod error;
 mod export;
 mod memory;
 mod recovery;
+mod state;
 mod storage;
 mod summarize;
 mod templates;
@@ -16,12 +18,12 @@ mod transcribe;
 mod types;
 
 use error::AppError;
+use state::AppState;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use storage::Storage;
 use tauri::Manager;
-use types::AppState;
 
 /// Resolves a user-supplied path to a WAV file under the OS temp directory (no path traversal).
 pub(crate) fn resolve_orphan_wav_path(user_path: &Path) -> Result<PathBuf, String> {
@@ -110,6 +112,7 @@ pub fn run() {
             commands::export::export_pdf,
             commands::export::get_audio_path,
             commands::export::export_audio,
+            commands::settings::get_setting_defaults,
             commands::settings::get_app_settings_snapshot,
             commands::settings::set_llm_model,
             commands::settings::dismiss_low_ram_onboarding,

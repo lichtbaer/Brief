@@ -2,7 +2,14 @@
 
 use crate::error::AppError;
 use crate::memory;
-use crate::types::{AppSettingsSnapshot, AppState};
+use crate::state::AppState;
+use crate::types::AppSettingsSnapshot;
+
+/// Returns the canonical setting defaults so the frontend does not duplicate them.
+#[tauri::command]
+pub fn get_setting_defaults() -> crate::defaults::SettingDefaults {
+    crate::defaults::DEFAULTS
+}
 
 /// Returns RAM snapshot, recommended LLM model, current model, and low-RAM onboarding flags for the settings UI.
 #[tauri::command]
@@ -15,7 +22,7 @@ pub async fn get_app_settings_snapshot(
     let llm_model = storage
         .get_setting("llm_model")
         .await?
-        .unwrap_or_else(|| "llama3.1:8b".to_string());
+        .unwrap_or_else(|| crate::defaults::LLM_MODEL.to_string());
     let llm_model_user_override = storage
         .get_setting("llm_model_user_override")
         .await?

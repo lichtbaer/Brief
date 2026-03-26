@@ -2,6 +2,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useReducer, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TRANSCRIPTION_TIMEOUT_ERROR, isMeeting, type Meeting, type MeetingType } from "../types";
+// Fallback value for the processing step hint; overridden by backend defaults when available.
+let processingStepHintSecs = 8;
+void invoke<{ processing_step_hint_secs: number }>("get_setting_defaults")
+  .then((d) => { processingStepHintSecs = d.processing_step_hint_secs; })
+  .catch(() => {});
 
 type AppStatus = "idle" | "recording" | "processing" | "done" | "error";
 type ProcessingStep = "transcribing" | "summarizing";
@@ -108,9 +113,9 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
 
       const id = setInterval(() => {
         setProcessingElapsed((s) => {
-          // Switch the step hint once processing exceeds 8 seconds (heuristic:
+          // Switch the step hint once processing exceeds the configured threshold (heuristic:
           // WhisperX typically finishes within this window on modern hardware).
-          if (s + 1 >= 8) dispatch({ type: "SET_PROCESSING_STEP", step: "summarizing" });
+          if (s + 1 >= processingStepHintSecs) dispatch({ type: "SET_PROCESSING_STEP", step: "summarizing" });
           return s + 1;
         });
       }, 1000);

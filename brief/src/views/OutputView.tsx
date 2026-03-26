@@ -1,9 +1,8 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
 import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useExport } from "../hooks/useExport";
 import type {
   ActionItem,
   Decision,
@@ -44,8 +43,7 @@ interface OutputViewProps {
  */
 export function OutputView({ meeting, onBack }: OutputViewProps) {
   const { t } = useTranslation();
-  const [exportBusy, setExportBusy] = useState<"markdown" | "pdf" | "audio" | null>(null);
-  const [exportError, setExportError] = useState<string | null>(null);
+  const { exportBusy, exportError, exportMarkdown, exportPdf, exportAudio } = useExport();
   const [copied, setCopied] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
@@ -81,76 +79,6 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
       ? followUp.full_text.trim()
       : "";
 
-  const showExportError = (e: unknown) => {
-    setExportError(String(e));
-    setTimeout(() => setExportError(null), 5000);
-  };
-
-  const exportMarkdown = async () => {
-    setExportBusy("markdown");
-    try {
-      const markdown = await invoke<string>("export_markdown", {
-        id: meeting.id,
-      });
-      const base = safeExportBaseName(meeting.title);
-      const path = await save({
-        defaultPath: `${base}.md`,
-        filters: [{ name: "Markdown", extensions: ["md"] }],
-      });
-      if (path) {
-        await writeFile(path, new TextEncoder().encode(markdown));
-      }
-    } catch (e) {
-      showExportError(e);
-    } finally {
-      setExportBusy(null);
-    }
-  };
-
-  const exportPdf = async () => {
-    setExportBusy("pdf");
-    try {
-      const pdfBase64 = await invoke<string>("export_pdf", { id: meeting.id });
-      const base = safeExportBaseName(meeting.title);
-      const path = await save({
-        defaultPath: `${base}.pdf`,
-        filters: [{ name: "PDF", extensions: ["pdf"] }],
-      });
-      if (path) {
-        let decoded: string;
-        try {
-          decoded = atob(pdfBase64);
-        } catch {
-          throw new Error("PDF base64 decoding failed");
-        }
-        const bytes = Uint8Array.from(decoded, (c) => c.charCodeAt(0));
-        await writeFile(path, bytes);
-      }
-    } catch (e) {
-      showExportError(e);
-    } finally {
-      setExportBusy(null);
-    }
-  };
-
-  const exportAudio = async () => {
-    if (!meeting.audio_path) {
-      return;
-    }
-    setExportBusy("audio");
-    try {
-      const savedPath = await invoke<string>("export_audio", { id: meeting.id });
-      window.alert(t("output.export_audio_success", { path: savedPath }));
-    } catch (e) {
-      if (String(e).includes("cancelled")) {
-        return;
-      }
-      showExportError(e);
-    } finally {
-      setExportBusy(null);
-    }
-  };
-
   const copyEmail = () => {
     void navigator.clipboard.writeText(followUpText);
     setCopied(true);
@@ -185,7 +113,7 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
             type="button"
             className="btn btn-ghost btn-icon"
             disabled={exportBusy !== null}
-            onClick={() => { void exportMarkdown(); }}
+            onClick={() => { void exportMarkdown(meeting.id, meeting.title); }}
           >
             {exportBusy === "markdown" ? (
               <><span className="spinner spinner-dark" />{t("output.exporting")}</>
@@ -197,7 +125,7 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
             type="button"
             className="btn btn-ghost btn-icon"
             disabled={exportBusy !== null}
-            onClick={() => { void exportPdf(); }}
+            onClick={() => { void exportPdf(meeting.id, meeting.title); }}
           >
             {exportBusy === "pdf" ? (
               <><span className="spinner spinner-dark" />{t("output.exporting")}</>
@@ -210,7 +138,7 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
               type="button"
               className="btn btn-ghost btn-icon"
               disabled={exportBusy !== null}
-              onClick={() => { void exportAudio(); }}
+              onClick={() => { void exportAudio(meeting.id); }}
             >
               {exportBusy === "audio" ? (
                 <><span className="spinner spinner-dark" />{t("output.exporting")}</>

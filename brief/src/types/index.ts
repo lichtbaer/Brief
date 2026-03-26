@@ -17,6 +17,19 @@ export interface PersistedSettings {
   whisperx_timeout_secs?: string;
 }
 
+/** Mirrors `defaults::SettingDefaults` — canonical defaults from Rust, fetched once at startup. */
+export interface SettingDefaults {
+  ollama_url: string;
+  llm_model: string;
+  default_meeting_type: string;
+  meeting_language: string;
+  retain_audio: string;
+  retention_days: string;
+  ui_language: string;
+  whisperx_timeout_secs: string;
+  processing_step_hint_secs: number;
+}
+
 /** Mirrors `AppSettingsSnapshot` from the Tauri backend. */
 export interface AppSettingsSnapshot {
   memoryGb: number;

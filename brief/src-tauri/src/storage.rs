@@ -1,5 +1,6 @@
 //! Encrypted SQLite persistence via SQLCipher (bundled).
 
+use crate::defaults;
 use crate::types::{Meeting, MeetingOutput};
 use serde_json::json;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
@@ -100,39 +101,35 @@ impl Storage {
         .await
         .map_err(|e| format!("Settings migration failed: {}", e))?;
 
-        sqlx::query(
+        // Default settings use centralised constants from `defaults.rs` — single source of truth.
+        let default_settings_sql = format!(
             "INSERT OR IGNORE INTO settings VALUES
-                ('ollama_url', 'http://localhost:11434', datetime('now')),
+                ('ollama_url', '{}', datetime('now')),
                 ('whisper_model', 'whisper', datetime('now')),
-                ('llm_model', 'llama3.1:8b', datetime('now')),
-                ('default_meeting_type', 'consulting', datetime('now')),
+                ('llm_model', '{}', datetime('now')),
+                ('default_meeting_type', '{}', datetime('now')),
                 ('audio_device', 'default', datetime('now')),
-                ('retention_days', '365', datetime('now')),
+                ('retention_days', '{}', datetime('now')),
                 ('llm_model_user_override', '0', datetime('now')),
-                ('low_ram_onboarding_dismissed', '0', datetime('now'))",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Default settings failed: {}", e))?;
-
-        sqlx::query(
-            "INSERT OR IGNORE INTO settings VALUES
-                ('meeting_language', 'de', datetime('now')),
-                ('retain_audio', 'false', datetime('now')),
-                ('ui_language', 'de', datetime('now')),
-                ('whisperx_timeout_secs', '900', datetime('now'))",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Default settings failed: {}", e))?;
-
-        sqlx::query(
-            "INSERT OR IGNORE INTO settings VALUES
+                ('low_ram_onboarding_dismissed', '0', datetime('now')),
+                ('meeting_language', '{}', datetime('now')),
+                ('retain_audio', '{}', datetime('now')),
+                ('ui_language', '{}', datetime('now')),
+                ('whisperx_timeout_secs', '{}', datetime('now')),
                 ('onboarding_complete', 'false', datetime('now'))",
-        )
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("Default settings failed: {}", e))?;
+            defaults::OLLAMA_URL,
+            defaults::LLM_MODEL,
+            defaults::DEFAULT_MEETING_TYPE,
+            defaults::RETENTION_DAYS,
+            defaults::MEETING_LANGUAGE,
+            defaults::RETAIN_AUDIO,
+            defaults::UI_LANGUAGE,
+            defaults::WHISPERX_TIMEOUT_SECS,
+        );
+        sqlx::query(&default_settings_sql)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| format!("Default settings failed: {}", e))?;
 
         // Upgrades: users who already have meetings should not see first-run onboarding.
         let meeting_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM meetings")
@@ -223,11 +220,11 @@ impl Storage {
         let url = self
             .get_setting("ollama_url")
             .await?
-            .unwrap_or_else(|| "http://localhost:11434".to_string());
+            .unwrap_or_else(|| defaults::OLLAMA_URL.to_string());
         let model = self
             .get_setting("llm_model")
             .await?
-            .unwrap_or_else(|| "llama3.1:8b".to_string());
+            .unwrap_or_else(|| defaults::LLM_MODEL.to_string());
         Ok((url, model))
     }
 

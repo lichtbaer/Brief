@@ -2,7 +2,7 @@
 
 use crate::error::AppError;
 use crate::storage::Storage;
-use crate::types::AppState;
+use crate::state::AppState;
 
 /// Fetches and parses a meeting as JSON value — shared helper to avoid duplicating the fetch+parse pattern.
 pub async fn fetch_meeting_value(
