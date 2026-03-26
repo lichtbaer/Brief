@@ -20,7 +20,7 @@ Always follow these rules. Do not deviate without explicit instruction.
 | Layer | Technology |
 |---|---|
 | Frontend | React 18, TypeScript 5 (strict), Vite 5 |
-| State | Zustand, TanStack Query |
+| State | React hooks (useReducer, useState) |
 | i18n | i18next + react-i18next |
 | Backend | Rust, Tauri 2 |
 | Audio | CPAL 0.15 (microphone capture) |
@@ -60,7 +60,7 @@ All non-trivial code must have inline comments explaining **why**, not just **wh
 - All error handling decisions: why this error is handled this way
 - Python functions in `whisperx_runner.py`: docstrings
 - React components: JSDoc comment explaining purpose and props
-- Zustand stores: comment on each slice explaining its role
+- State stores: comment on each slice explaining its role
 
 **What NOT to comment:**
 - Self-explanatory variable assignments
@@ -96,10 +96,11 @@ brief/
 │   │   └── locales/de|en/common.json
 │   ├── views/                  # RecordingView, OutputView, HistoryView, SettingsView
 │   ├── components/             # Shared UI components
-│   ├── store/                  # Zustand stores
+│   ├── store/                  # State management (future)
 │   └── types/index.ts          # Shared TypeScript types (Meeting, Segment, etc.)
 ├── src-tauri/src/              # Rust backend
-│   ├── lib.rs                  # All Tauri command registrations
+│   ├── lib.rs                  # App setup + command registration
+│   ├── commands/               # Tauri command handlers (recording, export, meetings, settings, health)
 │   ├── audio.rs                # CPAL microphone capture + WAV writing
 │   ├── transcribe.rs           # WhisperX subprocess integration
 │   └── storage.rs              # SQLCipher database operations

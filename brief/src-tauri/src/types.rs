@@ -1,6 +1,40 @@
-//! Meeting domain types (mirrors `src/types/index.ts`).
+//! Meeting domain types (mirrors `src/types/index.ts`) and shared application state.
 
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+use crate::audio::AudioRecorder;
+use crate::storage::Storage;
+
+/// Shared mutable state: in-memory recorders, async SQLCipher storage, and app data directory for retained audio.
+pub struct AppState {
+    pub recordings: Mutex<HashMap<String, AudioRecorder>>,
+    /// Session IDs currently inside `process_meeting` / `recover_orphaned_recording` (temp WAV still in use).
+    pub processing_sessions: Mutex<HashSet<String>>,
+    pub storage: tokio::sync::Mutex<Storage>,
+    pub app_data_dir: PathBuf,
+}
+
+/// Calculates meeting duration in seconds from a slice of segments with `start` and `end` fields.
+/// Returns at least 1 second if segments are present, 0 if empty.
+pub fn calculate_duration_seconds(segments: &[crate::transcribe::DiarizedSegment]) -> u32 {
+    if segments.is_empty() {
+        return 0;
+    }
+    let start = segments
+        .first()
+        .map(|s| s.start)
+        .unwrap_or(0.0)
+        .max(0.0);
+    let end = segments
+        .last()
+        .map(|s| s.end)
+        .unwrap_or(0.0)
+        .max(0.0);
+    ((end - start).max(0.0).ceil() as u32).max(1)
+}
 
 /// Settings + memory snapshot for the React shell (onboarding, settings screen).
 #[derive(Serialize, Clone, Debug)]

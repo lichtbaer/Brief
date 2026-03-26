@@ -24,7 +24,7 @@ impl Storage {
         let pool = SqlitePoolOptions::new()
             .connect_with(opts)
             .await
-            .map_err(|e| format!("DB-Verbindung fehlgeschlagen: {}", e))?;
+            .map_err(|e| format!("Database connection failed: {}", e))?;
 
         let storage = Storage { pool };
         storage.run_migrations().await.map_err(|e| {
@@ -59,7 +59,7 @@ impl Storage {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Migration fehlgeschlagen: {}", e))?;
+        .map_err(|e| format!("Migration failed: {}", e))?;
 
         // Standalone FTS5 (no content=): external-content sync did not populate the inverted index
         // reliably with SQLCipher; we create the table once and backfill on first creation only.
@@ -69,7 +69,7 @@ impl Storage {
         )
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| format!("FTS-Check fehlgeschlagen: {}", e))?;
+        .map_err(|e| format!("FTS check failed: {}", e))?;
 
         if fts_exists == 0 {
             sqlx::query(
@@ -78,7 +78,7 @@ impl Storage {
             )
             .execute(&self.pool)
             .await
-            .map_err(|e| format!("FTS-Migration fehlgeschlagen: {}", e))?;
+            .map_err(|e| format!("FTS migration failed: {}", e))?;
 
             sqlx::query(
                 "INSERT INTO meetings_fts(rowid, id, title, transcript)
@@ -86,7 +86,7 @@ impl Storage {
             )
             .execute(&self.pool)
             .await
-            .map_err(|e| format!("FTS-Backfill fehlgeschlagen: {}", e))?;
+            .map_err(|e| format!("FTS backfill failed: {}", e))?;
         }
 
         sqlx::query(
@@ -98,7 +98,7 @@ impl Storage {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Settings-Migration fehlgeschlagen: {}", e))?;
+        .map_err(|e| format!("Settings migration failed: {}", e))?;
 
         sqlx::query(
             "INSERT OR IGNORE INTO settings VALUES
@@ -113,7 +113,7 @@ impl Storage {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Default-Settings fehlgeschlagen: {}", e))?;
+        .map_err(|e| format!("Default settings failed: {}", e))?;
 
         sqlx::query(
             "INSERT OR IGNORE INTO settings VALUES
@@ -124,7 +124,7 @@ impl Storage {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Default-Settings fehlgeschlagen: {}", e))?;
+        .map_err(|e| format!("Default settings failed: {}", e))?;
 
         sqlx::query(
             "INSERT OR IGNORE INTO settings VALUES
@@ -132,13 +132,13 @@ impl Storage {
         )
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Default-Settings fehlgeschlagen: {}", e))?;
+        .map_err(|e| format!("Default settings failed: {}", e))?;
 
         // Upgrades: users who already have meetings should not see first-run onboarding.
         let meeting_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM meetings")
             .fetch_one(&self.pool)
             .await
-            .map_err(|e| format!("Migration fehlgeschlagen: {}", e))?;
+            .map_err(|e| format!("Migration failed: {}", e))?;
         if meeting_count > 0 {
             sqlx::query(
                 "INSERT INTO settings (key, value, updated_at) VALUES ('onboarding_complete', 'true', datetime('now'))
@@ -146,7 +146,7 @@ impl Storage {
             )
             .execute(&self.pool)
             .await
-            .map_err(|e| format!("Migration fehlgeschlagen: {}", e))?;
+            .map_err(|e| format!("Migration failed: {}", e))?;
         }
 
         Ok(())
@@ -158,7 +158,7 @@ impl Storage {
             .bind(key)
             .fetch_optional(&self.pool)
             .await
-            .map_err(|e| format!("Setting lesen fehlgeschlagen: {}", e))?;
+            .map_err(|e| format!("Failed to read setting: {}", e))?;
         Ok(row.map(|r| r.get::<String, _>("value")))
     }
 
@@ -172,7 +172,7 @@ impl Storage {
         .bind(value)
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("Setting speichern fehlgeschlagen: {}", e))?;
+        .map_err(|e| format!("Failed to save setting: {}", e))?;
         Ok(())
     }
 
@@ -214,7 +214,7 @@ impl Storage {
         .bind(recommended)
         .execute(&self.pool)
         .await
-        .map_err(|e| format!("llm_model aktualisieren fehlgeschlagen: {}", e))?;
+        .map_err(|e| format!("Failed to update llm_model: {}", e))?;
         Ok(())
     }
 
@@ -242,11 +242,11 @@ impl Storage {
             .pool
             .acquire()
             .await
-            .map_err(|e| format!("DB-Verbindung fehlgeschlagen: {}", e))?;
+            .map_err(|e| format!("Database connection failed: {}", e))?;
         let mut tx = conn
             .begin()
             .await
-            .map_err(|e| format!("Transaktion fehlgeschlagen: {}", e))?;
+            .map_err(|e| format!("Transaction failed: {}", e))?;
 
         sqlx::query(
             "INSERT INTO meetings (id, created_at, ended_at, duration_seconds, meeting_type,
@@ -265,7 +265,7 @@ impl Storage {
         .bind(&tags_json)
         .execute(&mut *tx)
         .await
-        .map_err(|e| format!("Meeting speichern fehlgeschlagen: {}", e))?;
+        .map_err(|e| format!("Failed to save meeting: {}", e))?;
 
         let rowid: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
             .fetch_one(&mut *tx)
@@ -279,11 +279,11 @@ impl Storage {
             .bind(&meeting.transcript)
             .execute(&mut *tx)
             .await
-            .map_err(|e| format!("FTS-Index fehlgeschlagen: {}", e))?;
+            .map_err(|e| format!("FTS index failed: {}", e))?;
 
         tx.commit()
             .await
-            .map_err(|e| format!("Commit fehlgeschlagen: {}", e))?;
+            .map_err(|e| format!("Commit failed: {}", e))?;
 
         Ok(())
     }
@@ -300,25 +300,7 @@ impl Storage {
         .await
         .map_err(|e| format!("list_meetings failed: {}", e))?;
 
-        let meetings: Vec<serde_json::Value> = rows
-            .iter()
-            .map(|r| {
-                let output_str: String = r.get("output_json");
-                let output: serde_json::Value =
-                    serde_json::from_str(&output_str).unwrap_or_else(|_| json!({}));
-                let action_items = output["action_items"].as_array();
-                let action_items_count = action_items.map(|a| a.len()).unwrap_or(0);
-                json!({
-                    "id": r.get::<String, _>("id"),
-                    "created_at": r.get::<String, _>("created_at"),
-                    "meeting_type": r.get::<String, _>("meeting_type"),
-                    "title": r.get::<String, _>("title"),
-                    "summary_short": output["summary_short"],
-                    "action_items_count": action_items_count,
-                })
-            })
-            .collect();
-
+        let meetings: Vec<serde_json::Value> = rows.iter().map(row_to_meeting_summary).collect();
         serde_json::to_string(&meetings).map_err(|e| e.to_string())
     }
 
@@ -342,25 +324,7 @@ impl Storage {
         .await
         .map_err(|e| format!("search_meetings failed: {}", e))?;
 
-        let meetings: Vec<serde_json::Value> = rows
-            .iter()
-            .map(|r| {
-                let output_str: String = r.get("output_json");
-                let output: serde_json::Value =
-                    serde_json::from_str(&output_str).unwrap_or_else(|_| json!({}));
-                let action_items = output["action_items"].as_array();
-                let action_items_count = action_items.map(|a| a.len()).unwrap_or(0);
-                json!({
-                    "id": r.get::<String, _>("id"),
-                    "created_at": r.get::<String, _>("created_at"),
-                    "meeting_type": r.get::<String, _>("meeting_type"),
-                    "title": r.get::<String, _>("title"),
-                    "summary_short": output["summary_short"],
-                    "action_items_count": action_items_count,
-                })
-            })
-            .collect();
-
+        let meetings: Vec<serde_json::Value> = rows.iter().map(row_to_meeting_summary).collect();
         serde_json::to_string(&meetings).map_err(|e| e.to_string())
     }
 
@@ -374,7 +338,7 @@ impl Storage {
         .bind(id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| format!("Meeting laden fehlgeschlagen: {}", e))?;
+        .map_err(|e| format!("Failed to load meeting: {}", e))?;
 
         Ok(row.map(|r| {
             let output_json: String = r.get("output_json");
@@ -394,6 +358,23 @@ impl Storage {
             .to_string()
         }))
     }
+}
+
+/// Maps a database row (with id, created_at, meeting_type, title, output_json columns) to a summary JSON object.
+fn row_to_meeting_summary(r: &sqlx::sqlite::SqliteRow) -> serde_json::Value {
+    let output_str: String = r.get("output_json");
+    let output: serde_json::Value =
+        serde_json::from_str(&output_str).unwrap_or_else(|_| json!({}));
+    let action_items = output["action_items"].as_array();
+    let action_items_count = action_items.map(|a| a.len()).unwrap_or(0);
+    json!({
+        "id": r.get::<String, _>("id"),
+        "created_at": r.get::<String, _>("created_at"),
+        "meeting_type": r.get::<String, _>("meeting_type"),
+        "title": r.get::<String, _>("title"),
+        "summary_short": output["summary_short"],
+        "action_items_count": action_items_count,
+    })
 }
 
 fn escape_key_pragma(key: &str) -> String {
@@ -438,13 +419,7 @@ pub fn meeting_from_transcription(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let duration_seconds = if segments.is_empty() {
-        0
-    } else {
-        let start = segments.first().map(|s| s.start).unwrap_or(0.0).max(0.0);
-        let end = segments.last().map(|s| s.end).unwrap_or(0.0).max(0.0);
-        ((end - start).max(0.0).ceil() as u32).max(1)
-    };
+    let duration_seconds = crate::types::calculate_duration_seconds(segments);
 
     let ended = chrono::Utc::now();
     let created = if duration_seconds == 0 {
@@ -507,6 +482,7 @@ mod tests {
     #[test]
     fn build_fts5_query_empty_string() {
         assert_eq!(build_fts5_query(""), None);
+        assert_eq!(build_fts5_query("   "), None);
     }
 
     #[test]
@@ -516,6 +492,9 @@ mod tests {
             build_fts5_query("hello@world").as_deref(),
             Some("\"hello@world\"")
         );
+        // Hyphenated tokens are also quoted.
+        let result = build_fts5_query("hello-world").unwrap();
+        assert!(result.contains('"'), "Hyphenated token should be quoted: {result}");
     }
 
     #[test]
@@ -533,6 +512,10 @@ mod tests {
         assert_eq!(
             build_fts5_query("Büro Café").as_deref(),
             Some("Büro AND Café")
+        );
+        assert_eq!(
+            build_fts5_query("Ärzte Überweisung").as_deref(),
+            Some("Ärzte AND Überweisung")
         );
     }
 
@@ -594,34 +577,6 @@ mod tests {
     #[test]
     fn escape_key_pragma_multiple_quotes() {
         assert_eq!(escape_key_pragma("a'b'c"), "a''b''c");
-    }
-
-    // -- build_fts5_query edge cases --
-
-    #[test]
-    fn build_fts5_query_single_token() {
-        assert_eq!(build_fts5_query("hello").as_deref(), Some("hello"));
-    }
-
-    #[test]
-    fn build_fts5_query_empty_returns_none() {
-        assert_eq!(build_fts5_query(""), None);
-        assert_eq!(build_fts5_query("   "), None);
-    }
-
-    #[test]
-    fn build_fts5_query_unicode_tokens() {
-        assert_eq!(
-            build_fts5_query("Ärzte Überweisung").as_deref(),
-            Some("Ärzte AND Überweisung")
-        );
-    }
-
-    #[test]
-    fn build_fts5_query_special_chars_quoted() {
-        // Tokens with non-alphanumeric chars get double-quoted.
-        let result = build_fts5_query("hello-world").unwrap();
-        assert!(result.contains('"'), "Hyphenated token should be quoted: {result}");
     }
 
     #[test]
