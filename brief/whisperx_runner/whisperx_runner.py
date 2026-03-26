@@ -39,18 +39,18 @@ def _patch_torch_load():
     torch.load = _patched
 
 
-def main():
+def main() -> None:
     """Load WhisperX on CPU, run transcription + alignment + diarization, emit JSON segments or ``{"error": ...}``."""
     if len(sys.argv) < 2:
-        print(json.dumps({"error": "Kein WAV-Pfad angegeben"}))
+        print(json.dumps({"error": "No WAV path provided"}))
         sys.exit(1)
 
-    wav_path = sys.argv[1]
-    language = sys.argv[2] if len(sys.argv) > 2 else "de"
-    model_size = sys.argv[3] if len(sys.argv) > 3 else "base"
+    wav_path: str = sys.argv[1]
+    language: str = sys.argv[2] if len(sys.argv) > 2 else "de"
+    model_size: str = sys.argv[3] if len(sys.argv) > 3 else "base"
 
     if not os.path.isfile(wav_path):
-        print(json.dumps({"error": f"Datei nicht gefunden: {wav_path}"}))
+        print(json.dumps({"error": f"File not found: {wav_path}"}))
         sys.exit(1)
 
     def progress(msg: str) -> None:
