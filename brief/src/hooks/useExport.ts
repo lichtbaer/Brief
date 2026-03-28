@@ -6,7 +6,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { useCallback, useState } from "react";
-import { useTranslation } from "react-i18next";
 
 import { safeExportBaseName } from "../views/OutputView";
 
@@ -15,19 +14,26 @@ export type ExportFormat = "markdown" | "pdf" | "audio";
 interface UseExportResult {
   exportBusy: ExportFormat | null;
   exportError: string | null;
+  /** Set when an audio export completes successfully — contains the saved file path. */
+  exportSuccess: string | null;
   exportMarkdown: (meetingId: string, title: string) => Promise<void>;
   exportPdf: (meetingId: string, title: string) => Promise<void>;
   exportAudio: (meetingId: string) => Promise<string | null>;
 }
 
 export function useExport(): UseExportResult {
-  const { t } = useTranslation();
   const [exportBusy, setExportBusy] = useState<ExportFormat | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [exportSuccess, setExportSuccess] = useState<string | null>(null);
 
   const showError = useCallback((e: unknown) => {
     setExportError(String(e));
     setTimeout(() => setExportError(null), 5000);
+  }, []);
+
+  const showSuccess = useCallback((path: string) => {
+    setExportSuccess(path);
+    setTimeout(() => setExportSuccess(null), 5000);
   }, []);
 
   const exportMarkdown = useCallback(async (meetingId: string, title: string) => {
@@ -79,7 +85,8 @@ export function useExport(): UseExportResult {
     setExportBusy("audio");
     try {
       const savedPath = await invoke<string>("export_audio", { id: meetingId });
-      window.alert(t("output.export_audio_success", { path: savedPath }));
+      // Use in-app success state instead of window.alert() to avoid blocking the UI thread.
+      showSuccess(savedPath);
       return savedPath;
     } catch (e) {
       if (!String(e).includes("cancelled")) {
@@ -89,7 +96,7 @@ export function useExport(): UseExportResult {
     } finally {
       setExportBusy(null);
     }
-  }, [showError, t]);
+  }, [showError, showSuccess]);
 
-  return { exportBusy, exportError, exportMarkdown, exportPdf, exportAudio };
+  return { exportBusy, exportError, exportSuccess, exportMarkdown, exportPdf, exportAudio };
 }

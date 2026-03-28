@@ -1,3 +1,4 @@
+use rand::Rng as _;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -12,6 +13,9 @@ const DEFAULT_MAX_RETRIES: u32 = 3;
 
 /// Default initial backoff delay in milliseconds (doubles with each retry).
 const DEFAULT_RETRY_BACKOFF_MS: u64 = 2000;
+
+/// Maximum backoff cap in milliseconds to prevent excessively long waits.
+const MAX_BACKOFF_MS: u64 = 30_000;
 
 #[derive(Serialize)]
 struct OllamaChatRequest {
@@ -48,9 +52,17 @@ pub struct Summarizer {
 }
 
 impl Summarizer {
-    pub fn new(ollama_url: Option<String>, model: Option<String>) -> Result<Self, String> {
+    /// Creates a new Summarizer.
+    /// `timeout_secs` controls the HTTP client timeout (default 300 if None).
+    /// A configurable timeout is important: 300s may be too short for long meetings on slow hardware.
+    pub fn new(
+        ollama_url: Option<String>,
+        model: Option<String>,
+        timeout_secs: Option<u64>,
+    ) -> Result<Self, String> {
+        let timeout = Duration::from_secs(timeout_secs.unwrap_or(300));
         let client = Client::builder()
-            .timeout(Duration::from_secs(300))
+            .timeout(timeout)
             .build()
             .map_err(|e| format!("HTTP client error: {}", e))?;
         Ok(Summarizer {
@@ -94,8 +106,12 @@ impl Summarizer {
 
         for attempt in 0..=self.max_retries {
             if attempt > 0 {
-                // Exponential backoff: 2s, 4s, 8s, … capped by the retry count.
-                let delay_ms = self.retry_backoff_ms * (1u64 << (attempt - 1));
+                // Exponential backoff with ±20% jitter and a hard cap to prevent thundering-herd
+                // when multiple concurrent clients retry at the same moment.
+                let base_ms = self.retry_backoff_ms * (1u64 << (attempt - 1));
+                let capped_ms = base_ms.min(MAX_BACKOFF_MS);
+                let jitter_ms: u64 = rand::thread_rng().gen_range(0..=(capped_ms / 5));
+                let delay_ms = capped_ms + jitter_ms;
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
             }
 
@@ -123,6 +139,14 @@ impl Summarizer {
         system_prompt: &str,
         meeting_type: &str,
     ) -> Result<MeetingOutput, String> {
+        // The transcript is passed as a separate user message — not embedded in the system prompt.
+        // Clear delimiters mark the transcript boundary to reduce prompt-injection risk from
+        // adversarial content in the meeting audio.
+        let user_content = format!(
+            "---BEGIN TRANSCRIPT---\n{}\n---END TRANSCRIPT---",
+            transcript
+        );
+
         let request = OllamaChatRequest {
             model: self.model.clone(),
             messages: vec![
@@ -132,7 +156,7 @@ impl Summarizer {
                 },
                 OllamaMessage {
                     role: "user".to_string(),
-                    content: format!("TRANSCRIPT:\n{}", transcript),
+                    content: user_content,
                 },
             ],
             stream: false,
@@ -211,6 +235,7 @@ fn parse_meeting_output(
         template_used: meeting_type.to_string(),
         model_used: model_used.to_string(),
         generated_at: now,
+        template_version: crate::templates::TEMPLATE_VERSION.to_string(),
     })
 }
 

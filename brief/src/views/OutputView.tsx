@@ -64,9 +64,11 @@ interface OutputViewProps {
  */
 export function OutputView({ meeting, onBack }: OutputViewProps) {
   const { t } = useTranslation();
-  const { exportBusy, exportError, exportMarkdown, exportPdf, exportAudio } = useExport();
+  const { exportBusy, exportError, exportSuccess, exportMarkdown, exportPdf, exportAudio } = useExport();
   const [copied, setCopied] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  // Shown when speaker name persistence fails — cosmetic, but user should know the save failed.
+  const [speakerSaveError, setSpeakerSaveError] = useState(false);
 
   // Tags state — initialised from the loaded meeting, then kept in sync locally after mutations.
   const [tags, setTags] = useState<string[]>(meeting.tags ?? []);
@@ -120,10 +122,15 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // Maximum tag length and count limits — kept in sync with backend validation in storage.rs.
+  const TAG_MAX_LENGTH = 50;
+
   /** Adds a new tag (commit on Enter or comma) and persists to backend. */
   const commitTag = async (raw: string) => {
     const tag = raw.replace(/,/g, "").trim();
-    if (!tag || tags.includes(tag) || tag.length > 50) return;
+    // Case-insensitive duplicate check: "Projekt" and "projekt" are treated as the same tag.
+    const isDuplicate = tags.some((t) => t.toLowerCase() === tag.toLowerCase());
+    if (!tag || isDuplicate || tag.length > TAG_MAX_LENGTH) return;
     const updated = [...tags, tag];
     setTags(updated);
     setTagInput("");
@@ -150,8 +157,11 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
   const persistSpeakerNames = async (names: Record<string, string>) => {
     try {
       await invoke("update_speaker_names", { id: meeting.id, names });
+      setSpeakerSaveError(false);
     } catch {
-      // Failure is non-critical — names are cosmetic and will be re-entered on next open.
+      // Show a brief inline error so the user knows the name was not saved.
+      setSpeakerSaveError(true);
+      setTimeout(() => setSpeakerSaveError(false), 5000);
     }
   };
 
@@ -172,6 +182,13 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
           <div className="alert alert-error" style={{ marginTop: "0.75rem" }}>
             <span>⚠</span>
             <span>{t("errors.alert", { message: exportError })}</span>
+          </div>
+        )}
+
+        {exportSuccess && (
+          <div className="alert alert-success" style={{ marginTop: "0.75rem" }}>
+            <span>✓</span>
+            <span>{t("output.export_audio_success", { path: exportSuccess })}</span>
           </div>
         )}
 
@@ -407,6 +424,12 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
           <p style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", marginTop: "0.25rem", marginBottom: "0.75rem" }}>
             {t("output.speaker_names_hint")}
           </p>
+          {speakerSaveError && (
+            <div className="alert alert-error" role="alert" style={{ marginBottom: "0.75rem", fontSize: "0.85rem" }}>
+              <span>⚠</span>
+              <span>{t("output.speaker_names_save_error")}</span>
+            </div>
+          )}
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {speakers.map((id) => (
               <div key={id} style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>

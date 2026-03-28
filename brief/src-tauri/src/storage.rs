@@ -117,6 +117,7 @@ impl Storage {
                 ('retain_audio', '{}', datetime('now')),
                 ('ui_language', '{}', datetime('now')),
                 ('whisperx_timeout_secs', '{}', datetime('now')),
+                ('ollama_timeout_secs', '{}', datetime('now')),
                 ('onboarding_complete', 'false', datetime('now'))",
             defaults::OLLAMA_URL,
             defaults::LLM_MODEL,
@@ -126,6 +127,7 @@ impl Storage {
             defaults::RETAIN_AUDIO,
             defaults::UI_LANGUAGE,
             defaults::WHISPERX_TIMEOUT_SECS,
+            defaults::OLLAMA_TIMEOUT_SECS,
         );
         sqlx::query(&default_settings_sql)
             .execute(&self.pool)
@@ -235,8 +237,8 @@ impl Storage {
         Ok(())
     }
 
-    /// Returns `(ollama_url, llm_model)` from settings with sensible defaults for summarization.
-    pub async fn get_summarizer_config(&self) -> Result<(String, String), String> {
+    /// Returns `(ollama_url, llm_model, ollama_timeout_secs)` from settings for summarization.
+    pub async fn get_summarizer_config(&self) -> Result<(String, String, u64), String> {
         let url = self
             .get_setting("ollama_url")
             .await?
@@ -245,7 +247,12 @@ impl Storage {
             .get_setting("llm_model")
             .await?
             .unwrap_or_else(|| defaults::LLM_MODEL.to_string());
-        Ok((url, model))
+        let timeout_secs: u64 = self
+            .get_setting("ollama_timeout_secs")
+            .await?
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(300);
+        Ok((url, model, timeout_secs))
     }
 
     /// Inserts a full meeting row and updates the FTS5 shadow table for title/transcript search.
@@ -598,6 +605,7 @@ pub fn meeting_from_transcription(
         template_used: "whisperx".to_string(),
         model_used: format!("whisperx/{}", language),
         generated_at: ended.to_rfc3339(),
+        template_version: crate::templates::TEMPLATE_VERSION.to_string(),
     };
 
     Meeting {

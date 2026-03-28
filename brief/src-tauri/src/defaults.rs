@@ -27,6 +27,10 @@ pub const UI_LANGUAGE: &str = "de";
 /// Default WhisperX subprocess timeout in seconds (15 minutes).
 pub const WHISPERX_TIMEOUT_SECS: &str = "900";
 
+/// Default Ollama HTTP request timeout in seconds.
+/// 300s is appropriate for short-to-medium meetings; users can raise it in settings for long ones.
+pub const OLLAMA_TIMEOUT_SECS: &str = "300";
+
 /// Heuristic threshold (seconds) after which the processing step hint switches
 /// from "transcribing" to "summarizing" in the frontend.
 pub const PROCESSING_STEP_HINT_SECS: u64 = 8;
@@ -43,6 +47,8 @@ pub struct SettingDefaults {
     pub retention_days: &'static str,
     pub ui_language: &'static str,
     pub whisperx_timeout_secs: &'static str,
+    /// Ollama HTTP request timeout in seconds (default 300).
+    pub ollama_timeout_secs: &'static str,
     /// Exposed so the frontend step-hint timer uses the same constant.
     pub processing_step_hint_secs: u64,
 }
@@ -57,5 +63,6 @@ pub const DEFAULTS: SettingDefaults = SettingDefaults {
     retention_days: RETENTION_DAYS,
     ui_language: UI_LANGUAGE,
     whisperx_timeout_secs: WHISPERX_TIMEOUT_SECS,
+    ollama_timeout_secs: OLLAMA_TIMEOUT_SECS,
     processing_step_hint_secs: PROCESSING_STEP_HINT_SECS,
 };

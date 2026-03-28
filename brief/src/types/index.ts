@@ -15,6 +15,8 @@ export interface PersistedSettings {
   ui_language?: string;
   /** WhisperX subprocess timeout in seconds (default 900 = 15 min). */
   whisperx_timeout_secs?: string;
+  /** Ollama HTTP request timeout in seconds (default 300). */
+  ollama_timeout_secs?: string;
 }
 
 /** Mirrors `defaults::SettingDefaults` — canonical defaults from Rust, fetched once at startup. */
@@ -27,6 +29,8 @@ export interface SettingDefaults {
   retention_days: string;
   ui_language: string;
   whisperx_timeout_secs: string;
+  /** Ollama HTTP request timeout in seconds. */
+  ollama_timeout_secs: string;
   processing_step_hint_secs: number;
 }
 
@@ -84,6 +88,8 @@ export interface MeetingOutput {
   template_used: string;
   model_used: string;
   generated_at: string;
+  /** Prompt template version used to generate this output. Empty for legacy records. */
+  template_version?: string;
 }
 
 export interface Meeting {

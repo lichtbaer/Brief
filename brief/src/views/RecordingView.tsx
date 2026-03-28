@@ -2,6 +2,22 @@ import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useReducer, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TRANSCRIPTION_TIMEOUT_ERROR, isMeeting, type Meeting, type MeetingType } from "../types";
+
+/**
+ * Maps raw backend error strings to localized i18n keys.
+ * Stable token constants are preferred over substring matches to survive refactoring.
+ * Falls back to the raw message string so technical errors remain visible.
+ */
+function classifyError(raw: string, t: (key: string) => string): string {
+  if (raw.includes(TRANSCRIPTION_TIMEOUT_ERROR)) return t("errors.transcription_timeout");
+  // NoMicrophone error from audio.rs — stable variant name used as token.
+  if (raw.toLowerCase().includes("no microphone") || raw.includes("NoMicrophone")) return t("errors.no_microphone");
+  // Ollama not reachable — stable message from summarize.rs.
+  if (raw.includes("Ollama not reachable")) return t("errors.ollama_not_reachable");
+  // WhisperX subprocess failed to start.
+  if (raw.includes("WhisperX") || raw.includes("whisperx")) return t("errors.whisperx_unavailable");
+  return raw;
+}
 // Fallback value for the processing step hint; overridden by backend defaults when available.
 let processingStepHintSecs = 8;
 void invoke<{ processing_step_hint_secs: number }>("get_setting_defaults")
@@ -144,13 +160,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
         dispatch({ type: "PROCESSING_DONE", meeting: parsed });
       }
     } catch (err) {
-      const raw = String(err);
-      dispatch({
-        type: "ERROR",
-        error: raw.includes(TRANSCRIPTION_TIMEOUT_ERROR)
-          ? t("errors.transcription_timeout")
-          : raw,
-      });
+      dispatch({ type: "ERROR", error: classifyError(String(err), t) });
     }
   };
 
@@ -161,7 +171,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
       });
       dispatch({ type: "START_RECORDING", sessionId: id });
     } catch (e) {
-      dispatch({ type: "ERROR", error: String(e) });
+      dispatch({ type: "ERROR", error: classifyError(String(e), t) });
     }
   };
 
@@ -174,7 +184,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
       });
       await processMeeting(currentSessionId, path);
     } catch (e) {
-      dispatch({ type: "ERROR", error: String(e) });
+      dispatch({ type: "ERROR", error: classifyError(String(e), t) });
     }
   };
 
@@ -192,9 +202,11 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
     }
   };
 
+  // Characters shown in the post-recording transcript preview — kept as a named constant.
+  const TRANSCRIPT_PREVIEW_CHARS = 200;
   const transcriptPreview =
-    meeting?.transcript && meeting.transcript.length > 200
-      ? `${meeting.transcript.slice(0, 200)}…`
+    meeting?.transcript && meeting.transcript.length > TRANSCRIPT_PREVIEW_CHARS
+      ? `${meeting.transcript.slice(0, TRANSCRIPT_PREVIEW_CHARS)}…`
       : (meeting?.transcript ?? "");
 
   const buttonClass =
@@ -313,7 +325,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
         </div>
       )}
 
-      {/* Primary action button */}
+      {/* Primary action button — shows spinner + label during processing to avoid empty button state */}
       <button
         type="button"
         className={buttonClass}
@@ -321,7 +333,11 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
         disabled={status === "processing"}
         style={{ marginTop: "0.5rem" }}
       >
-        {status === "processing" ? null : buttonLabel}
+        {status === "processing" ? (
+          <><span className="spinner spinner-dark" />{buttonLabel}</>
+        ) : (
+          buttonLabel
+        )}
       </button>
     </div>
   );

@@ -105,15 +105,39 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
     }
   };
 
-  const handleSearch = async (q: string) => {
-    setSearchQuery(q);
-    setActiveTagFilter(null);
+  /**
+   * Fetches and displays meetings matching both the search query and tag filter.
+   * When both are active, FTS results are fetched then filtered client-side by tag.
+   * Called whenever either search query or tag filter changes.
+   */
+  const applyFilters = async (q: string, tag: string | null) => {
+    // Minimum search length: single-char queries produce too many low-quality FTS matches.
+    const SEARCH_MIN_LENGTH = 2;
     const trimmed = q.trim();
-    if (trimmed.length < 2) {
-      await loadMeetings();
+
+    if (trimmed.length < SEARCH_MIN_LENGTH) {
+      if (tag) {
+        // Tag-only filter: use dedicated backend query.
+        searchActiveRef.current = false;
+        setHasMore(false);
+        setNextCursor(null);
+        setLoading(true);
+        setLoadError(null);
+        try {
+          const result = await invoke<string>("list_meetings_by_tag", { tag });
+          setMeetings(JSON.parse(result) as MeetingSummary[]);
+        } catch (e) {
+          setLoadError(e instanceof Error ? e.message : String(e));
+        } finally {
+          setLoading(false);
+        }
+      } else {
+        await loadMeetings();
+      }
       return;
     }
-    // Search mode: no pagination (FTS results are bounded).
+
+    // FTS search mode — pagination disabled (results bounded by backend LIMIT).
     searchActiveRef.current = true;
     setHasMore(false);
     setNextCursor(null);
@@ -121,7 +145,12 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
     setLoadError(null);
     try {
       const result = await invoke<string>("search_meetings", { query: q });
-      setMeetings(JSON.parse(result) as MeetingSummary[]);
+      let results = JSON.parse(result) as MeetingSummary[];
+      // Apply tag filter client-side on top of FTS results to support combined filtering.
+      if (tag) {
+        results = results.filter((m) => m.tags?.includes(tag));
+      }
+      setMeetings(results);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -129,28 +158,22 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
     }
   };
 
-  /** Filters meeting list by a single tag (exact match). */
-  const handleTagFilter = async (tag: string) => {
-    setActiveTagFilter(tag);
-    setSearchQuery("");
-    searchActiveRef.current = false;
-    setHasMore(false);
-    setNextCursor(null);
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const result = await invoke<string>("list_meetings_by_tag", { tag });
-      setMeetings(JSON.parse(result) as MeetingSummary[]);
-    } catch (e) {
-      setLoadError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
+  const handleSearch = (q: string) => {
+    setSearchQuery(q);
+    void applyFilters(q, activeTagFilter);
   };
 
-  /** Clears any active tag filter and reloads the full paginated list. */
+  /** Toggles a tag filter on/off; combined with any active search query. */
+  const handleTagFilter = (tag: string) => {
+    const newTag = activeTagFilter === tag ? null : tag;
+    setActiveTagFilter(newTag);
+    void applyFilters(searchQuery, newTag);
+  };
+
+  /** Clears the tag filter while preserving any active search. */
   const clearTagFilter = () => {
-    void loadMeetings();
+    setActiveTagFilter(null);
+    void applyFilters(searchQuery, null);
   };
 
   // Derive the date locale from the current UI language so dates respect the
@@ -186,14 +209,14 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
         type="search"
         placeholder={t("history.search_placeholder")}
         value={searchQuery}
-        onChange={(e) => void handleSearch(e.target.value)}
+        onChange={(e) => handleSearch(e.target.value)}
         className="form-input"
         style={{ maxWidth: "32rem", marginBottom: "0.75rem" }}
         aria-label={t("history.search_placeholder")}
       />
 
-      {/* Tag filter row — shown when tags exist and no search is active */}
-      {allTags.length > 0 && !searchQuery && (
+      {/* Tag filter row — always shown when tags exist so users can combine search + tag filter */}
+      {allTags.length > 0 && (
         <div
           style={{
             display: "flex",
@@ -210,13 +233,7 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
             <button
               key={tag}
               type="button"
-              onClick={() => {
-                if (activeTagFilter === tag) {
-                  clearTagFilter();
-                } else {
-                  void handleTagFilter(tag);
-                }
-              }}
+              onClick={() => handleTagFilter(tag)}
               style={{
                 fontSize: "0.75rem",
                 padding: "0.15rem 0.55rem",
@@ -342,6 +359,22 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
               )}
             </button>
           ))}
+
+          {/* Search result limit hint — FTS returns at most 20 results per query */}
+          {searchActiveRef.current && meetings.length >= 20 && (
+            <p
+              role="status"
+              style={{
+                textAlign: "center",
+                fontSize: "0.8rem",
+                color: "var(--color-text-subtle)",
+                marginTop: "0.5rem",
+                padding: "0.5rem",
+              }}
+            >
+              {t("history.search_limit_hint")}
+            </p>
+          )}
 
           {/* Load more — only shown when not searching and more pages exist */}
           {hasMore && !searchQuery && !activeTagFilter && (
