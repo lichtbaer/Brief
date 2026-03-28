@@ -159,6 +159,7 @@ export default function App() {
             <OutputView
               meeting={currentMeeting}
               onBack={handleOutputBack}
+              onMeetingUpdated={setCurrentMeeting}
             />
           )}
           {currentView === "history" && (

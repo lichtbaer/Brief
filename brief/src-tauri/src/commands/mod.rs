@@ -1,5 +1,6 @@
 //! Tauri command handlers, organized by domain.
 
+pub mod audio;
 pub mod export;
 pub mod health;
 pub mod meetings;

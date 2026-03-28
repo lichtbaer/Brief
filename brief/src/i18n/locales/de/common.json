@@ -52,7 +52,8 @@
     "step_transcribing": "Transkribiere Audio…",
     "step_summarizing": "Erstelle Zusammenfassung…",
     "elapsed": "{{time}} aufgezeichnet",
-    "processing_elapsed": "{{time}} verarbeitet"
+    "processing_elapsed": "{{time}} verarbeitet",
+    "level_meter_aria": "Mikrofon-Eingangspegel"
   },
   "errors": {
     "whisperx_unavailable": "WhisperX ist nicht verfügbar. Bitte Python-Umgebung einrichten: cd whisperx_runner && bash setup.sh",
@@ -73,7 +74,11 @@
     "loading_more": "Lade weitere…",
     "filter_by_tag": "Nach Tag filtern",
     "tag_filter_clear": "Filter löschen",
-    "search_limit_hint": "Mehr als 20 Treffer — Suche verfeinern für bessere Ergebnisse."
+    "search_limit_hint": "Mehr als 20 Treffer — Suche verfeinern für bessere Ergebnisse.",
+    "filter_by_type": "Nach Typ filtern",
+    "type_filter_clear": "Typfilter löschen",
+    "delete_meeting": "Löschen",
+    "delete_meeting_aria": "Meeting löschen: {{title}}"
   },
   "output": {
     "back": "Zurück",
@@ -103,7 +108,15 @@
     "speaker_names_title": "Sprecher benennen",
     "speaker_name_placeholder": "Name eingeben…",
     "speaker_names_hint": "Namen werden nur in der Ansicht ersetzt — das Transkript bleibt unverändert.",
-    "speaker_names_save_error": "Speichern der Sprechernamen fehlgeschlagen — bitte erneut versuchen."
+    "speaker_names_save_error": "Speichern der Sprechernamen fehlgeschlagen — bitte erneut versuchen.",
+    "title_edit_placeholder": "Meeting-Titel",
+    "title_save_error": "Titel konnte nicht gespeichert werden — bitte erneut versuchen.",
+    "delete_meeting": "Meeting löschen",
+    "delete_confirm": "Dieses Meeting wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
+    "delete_error": "Meeting konnte nicht gelöscht werden.",
+    "regenerate_summary": "Zusammenfassung neu erstellen",
+    "regenerating": "Erstelle neu…",
+    "regenerate_error": "Zusammenfassung konnte nicht neu erstellt werden."
   },
   "settings": {
     "title": "Einstellungen",
@@ -127,7 +140,10 @@
     "memory_detected": "Erkanntes Arbeitsspeicher: ca. {{gb}} GB",
     "llm_model_override_hint": "Manuelle Auswahl aktiv — automatische RAM-Empfehlung wird nicht mehr angewendet.",
     "ollama_timeout": "Ollama — maximale Anfragezeit (Sekunden)",
-    "ollama_timeout_hint": "Standard 300 (5 Minuten). Bei langen Meetings oder langsamer Hardware erhöhen (30–3600)."
+    "ollama_timeout_hint": "Standard 300 (5 Minuten). Bei langen Meetings oder langsamer Hardware erhöhen (30–3600).",
+    "audio_device": "Mikrofon / Aufnahmegerät",
+    "audio_device_default": "System-Standard",
+    "audio_device_hint": "Wähle das Eingabegerät für Aufnahmen. Änderungen gelten ab der nächsten Aufnahme."
   },
   "onboarding": {
     "loading_app": "Lade…",

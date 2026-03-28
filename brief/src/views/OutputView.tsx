@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useExport } from "../hooks/useExport";
+import { formatDuration } from "./HistoryView";
 import type {
   ActionItem,
   Decision,
@@ -53,6 +54,8 @@ interface OutputViewProps {
   meeting: Meeting;
   /** Navigate back to history or home without persisting. */
   onBack: () => void;
+  /** Called with the refreshed meeting after a successful re-summarization. */
+  onMeetingUpdated?: (updated: Meeting) => void;
 }
 
 /**
@@ -62,13 +65,20 @@ interface OutputViewProps {
  * @param props.meeting — loaded meeting record.
  * @param props.onBack — header back action.
  */
-export function OutputView({ meeting, onBack }: OutputViewProps) {
+export function OutputView({ meeting, onBack, onMeetingUpdated }: OutputViewProps) {
   const { t } = useTranslation();
   const { exportBusy, exportError, exportSuccess, exportMarkdown, exportPdf, exportAudio } = useExport();
   const [copied, setCopied] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
   // Shown when speaker name persistence fails — cosmetic, but user should know the save failed.
   const [speakerSaveError, setSpeakerSaveError] = useState(false);
+
+  // Title editing state — local copy so edits are reflected immediately before persistence.
+  const [title, setTitle] = useState(meeting.title);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleSaveError, setTitleSaveError] = useState(false);
 
   // Tags state — initialised from the loaded meeting, then kept in sync locally after mutations.
   const [tags, setTags] = useState<string[]>(meeting.tags ?? []);
@@ -115,6 +125,56 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
     followUp && typeof followUp.full_text === "string"
       ? followUp.full_text.trim()
       : "";
+
+  /** Persists the edited title to the backend; reverts to the previous value on failure. */
+  const persistTitle = async (newTitle: string) => {
+    const trimmed = newTitle.trim();
+    if (!trimmed || trimmed === meeting.title) {
+      setTitle(meeting.title);
+      setEditingTitle(false);
+      return;
+    }
+    try {
+      await invoke("update_meeting_title", { id: meeting.id, title: trimmed });
+      setTitle(trimmed);
+      setTitleSaveError(false);
+    } catch {
+      setTitle(meeting.title);
+      setTitleSaveError(true);
+      setTimeout(() => setTitleSaveError(false), 5000);
+    }
+    setEditingTitle(false);
+  };
+
+  /** Prompts for confirmation then soft-deletes the meeting and navigates back. */
+  const deleteMeeting = async () => {
+    if (!window.confirm(t("output.delete_confirm"))) return;
+    setDeleting(true);
+    try {
+      await invoke("delete_meeting", { id: meeting.id });
+      onBack();
+    } catch {
+      setDeleting(false);
+      alert(t("output.delete_error"));
+    }
+  };
+
+  /** Re-runs the Ollama summarizer on the stored transcript; updates the view with the new output. */
+  const regenerateSummary = async () => {
+    setRegenerating(true);
+    try {
+      const json = await invoke<string>("regenerate_summary", {
+        id: meeting.id,
+        meetingType: meeting.meeting_type,
+      });
+      const updated = JSON.parse(json) as Meeting;
+      if (onMeetingUpdated) onMeetingUpdated(updated);
+    } catch {
+      alert(t("output.regenerate_error"));
+    } finally {
+      setRegenerating(false);
+    }
+  };
 
   const copyEmail = () => {
     void navigator.clipboard.writeText(followUpText);
@@ -171,11 +231,42 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
         <button type="button" className="btn btn-ghost btn-icon" onClick={onBack}>
           ← {t("output.back")}
         </button>
-        <h1 style={{ marginTop: "0.75rem", marginBottom: "0.25rem", fontSize: "1.3rem", fontWeight: 700 }}>
-          {meeting.title}
-        </h1>
-        <span style={{ fontSize: "0.85rem", color: "var(--color-text-muted)" }}>
-          {t(`meeting_types.${meeting.meeting_type}`)}
+        {/* Inline-editable meeting title — click to edit, blur/Enter to persist */}
+        {editingTitle ? (
+          <input
+            type="text"
+            className="form-input"
+            value={title}
+            placeholder={t("output.title_edit_placeholder")}
+            onChange={(e) => setTitle(e.target.value)}
+            onBlur={() => void persistTitle(title)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void persistTitle(title);
+              if (e.key === "Escape") { setTitle(meeting.title); setEditingTitle(false); }
+            }}
+            autoFocus
+            style={{ marginTop: "0.75rem", marginBottom: "0.25rem", fontSize: "1.3rem", fontWeight: 700, maxWidth: "100%" }}
+          />
+        ) : (
+          <h1
+            style={{ marginTop: "0.75rem", marginBottom: "0.25rem", fontSize: "1.3rem", fontWeight: 700, cursor: "text" }}
+            title={t("output.title_edit_placeholder")}
+            onClick={() => setEditingTitle(true)}
+          >
+            {title}
+          </h1>
+        )}
+        {titleSaveError && (
+          <div className="alert alert-error" role="alert" style={{ marginBottom: "0.5rem", fontSize: "0.85rem" }}>
+            <span>⚠</span>
+            <span>{t("output.title_save_error")}</span>
+          </div>
+        )}
+        <span style={{ fontSize: "0.85rem", color: "var(--color-text-muted)", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+          <span>{t(`meeting_types.${meeting.meeting_type}`)}</span>
+          {meeting.duration_seconds > 0 && (
+            <span>{formatDuration(meeting.duration_seconds)}</span>
+          )}
         </span>
 
         {exportError && (
@@ -200,7 +291,7 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
             type="button"
             className="btn btn-ghost btn-icon"
             disabled={exportBusy !== null}
-            onClick={() => { void exportMarkdown(meeting.id, meeting.title); }}
+            onClick={() => { void exportMarkdown(meeting.id, title); }}
           >
             {exportBusy === "markdown" ? (
               <><span className="spinner spinner-dark" />{t("output.exporting")}</>
@@ -212,7 +303,7 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
             type="button"
             className="btn btn-ghost btn-icon"
             disabled={exportBusy !== null}
-            onClick={() => { void exportPdf(meeting.id, meeting.title); }}
+            onClick={() => { void exportPdf(meeting.id, title); }}
           >
             {exportBusy === "pdf" ? (
               <><span className="spinner spinner-dark" />{t("output.exporting")}</>
@@ -234,6 +325,31 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
               )}
             </button>
           ) : null}
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon"
+            disabled={regenerating || deleting || exportBusy !== null}
+            onClick={() => void regenerateSummary()}
+          >
+            {regenerating ? (
+              <><span className="spinner spinner-dark" />{t("output.regenerating")}</>
+            ) : (
+              t("output.regenerate_summary")
+            )}
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon"
+            disabled={deleting || regenerating || exportBusy !== null}
+            onClick={() => void deleteMeeting()}
+            style={{ color: "var(--color-error, #dc2626)", marginLeft: "auto" }}
+          >
+            {deleting ? (
+              <><span className="spinner spinner-dark" />{t("output.delete_meeting")}</>
+            ) : (
+              t("output.delete_meeting")
+            )}
+          </button>
         </div>
       </div>
 

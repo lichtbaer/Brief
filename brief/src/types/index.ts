@@ -17,6 +17,8 @@ export interface PersistedSettings {
   whisperx_timeout_secs?: string;
   /** Ollama HTTP request timeout in seconds (default 300). */
   ollama_timeout_secs?: string;
+  /** Name of the preferred CPAL input device; "default" uses the system default. */
+  audio_device?: string;
 }
 
 /** Mirrors `defaults::SettingDefaults` — canonical defaults from Rust, fetched once at startup. */

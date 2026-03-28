@@ -52,7 +52,8 @@
     "step_transcribing": "Transcribing audio…",
     "step_summarizing": "Generating summary…",
     "elapsed": "{{time}} recorded",
-    "processing_elapsed": "{{time}} processing"
+    "processing_elapsed": "{{time}} processing",
+    "level_meter_aria": "Microphone input level"
   },
   "errors": {
     "whisperx_unavailable": "WhisperX is not available. Please set up the Python environment: cd whisperx_runner && bash setup.sh",
@@ -73,7 +74,11 @@
     "loading_more": "Loading…",
     "filter_by_tag": "Filter by tag",
     "tag_filter_clear": "Clear filter",
-    "search_limit_hint": "More than 20 results — refine your search for better matches."
+    "search_limit_hint": "More than 20 results — refine your search for better matches.",
+    "filter_by_type": "Filter by type",
+    "type_filter_clear": "Clear type filter",
+    "delete_meeting": "Delete",
+    "delete_meeting_aria": "Delete meeting: {{title}}"
   },
   "output": {
     "back": "Back",
@@ -103,7 +108,15 @@
     "speaker_names_title": "Name speakers",
     "speaker_name_placeholder": "Enter name…",
     "speaker_names_hint": "Names are applied to the view only — the stored transcript is unchanged.",
-    "speaker_names_save_error": "Failed to save speaker names — please try again."
+    "speaker_names_save_error": "Failed to save speaker names — please try again.",
+    "title_edit_placeholder": "Meeting title",
+    "title_save_error": "Could not save title — please try again.",
+    "delete_meeting": "Delete meeting",
+    "delete_confirm": "Really delete this meeting? This action cannot be undone.",
+    "delete_error": "Could not delete meeting.",
+    "regenerate_summary": "Regenerate summary",
+    "regenerating": "Regenerating…",
+    "regenerate_error": "Could not regenerate summary."
   },
   "settings": {
     "title": "Settings",
@@ -127,7 +140,10 @@
     "memory_detected": "Detected system memory: ~{{gb}} GB",
     "llm_model_override_hint": "Manual selection is active — automatic RAM-based recommendation is no longer applied.",
     "ollama_timeout": "Ollama — maximum request time (seconds)",
-    "ollama_timeout_hint": "Default 300 (5 minutes). Increase for long meetings or slow hardware (30–3600)."
+    "ollama_timeout_hint": "Default 300 (5 minutes). Increase for long meetings or slow hardware (30–3600).",
+    "audio_device": "Microphone / recording device",
+    "audio_device_default": "System default",
+    "audio_device_hint": "Choose the input device for recordings. Changes take effect on the next recording."
   },
   "onboarding": {
     "loading_app": "Loading…",

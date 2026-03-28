@@ -98,6 +98,8 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
   const [meetingLanguage, setMeetingLanguage] = useState<string>("de");
   const [elapsed, setElapsed] = useState(0);
   const [processingElapsed, setProcessingElapsed] = useState(0);
+  // Audio level [0, 1] polled from backend while recording to drive the level meter.
+  const [audioLevel, setAudioLevel] = useState(0);
 
   const { status, sessionId, error, meeting, processingStep } = state;
 
@@ -142,6 +144,19 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
     // Reset processing state when neither recording nor processing.
     setProcessingElapsed(0);
   }, [status]);
+
+  // Poll audio level at ~5 Hz while recording for the level meter visualisation.
+  // A separate effect keeps this concern isolated from the timer logic above.
+  useEffect(() => {
+    if (status !== "recording" || !sessionId) {
+      setAudioLevel(0);
+      return;
+    }
+    const id = setInterval(() => {
+      void invoke<number>("get_audio_level", { sessionId }).then(setAudioLevel).catch(() => {});
+    }, 200);
+    return () => clearInterval(id);
+  }, [status, sessionId]);
 
   const processMeeting = async (sid: string, audioPath: string) => {
     dispatch({ type: "START_PROCESSING" });
@@ -247,6 +262,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
               <option value="consulting">{t("meeting_types.consulting")}</option>
               <option value="legal">{t("meeting_types.legal")}</option>
               <option value="internal">{t("meeting_types.internal")}</option>
+              <option value="custom">{t("meeting_types.custom")}</option>
             </select>
           </div>
           <div className="form-group">
@@ -271,13 +287,38 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
         </>
       )}
 
-      {/* Recording indicator with elapsed timer */}
+      {/* Recording indicator with elapsed timer and audio level meter */}
       {status === "recording" && (
-        <div className="record-status-bar">
-          <span className="record-dot" />
-          <span>{t("recording.status_recording")}</span>
-          <span className="record-timer">{t("recording.elapsed", { time: formatTime(elapsed) })}</span>
-        </div>
+        <>
+          <div className="record-status-bar">
+            <span className="record-dot" />
+            <span>{t("recording.status_recording")}</span>
+            <span className="record-timer">{t("recording.elapsed", { time: formatTime(elapsed) })}</span>
+          </div>
+          {/* Level meter: green bar showing current microphone RMS. Width scales with audioLevel. */}
+          <div
+            aria-label={t("recording.level_meter_aria")}
+            style={{
+              marginBottom: "0.75rem",
+              height: "6px",
+              borderRadius: "3px",
+              background: "var(--color-border, #e5e7eb)",
+              overflow: "hidden",
+              maxWidth: "20rem",
+            }}
+          >
+            <div
+              style={{
+                height: "100%",
+                // Apply a sqrt curve so the meter is more visually responsive at low levels.
+                width: `${Math.round(Math.sqrt(audioLevel) * 100)}%`,
+                background: audioLevel > 0.8 ? "#ef4444" : audioLevel > 0.5 ? "#f59e0b" : "#22c55e",
+                transition: "width 0.1s ease-out, background 0.1s ease-out",
+                borderRadius: "3px",
+              }}
+            />
+          </div>
+        </>
       )}
 
       {/* Processing indicator with step labels */}

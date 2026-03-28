@@ -30,6 +30,7 @@ export function mergeSettings(raw: Record<string, string>, defaults?: SettingDef
     ui_language: raw.ui_language ?? d.ui_language,
     whisperx_timeout_secs: raw.whisperx_timeout_secs ?? d.whisperx_timeout_secs,
     ollama_timeout_secs: raw.ollama_timeout_secs ?? d.ollama_timeout_secs,
+    audio_device: raw.audio_device ?? "default",
   };
 }
 
@@ -46,6 +47,8 @@ export function SettingsView() {
   const [snapshot, setSnapshot] = useState<AppSettingsSnapshot | null>(null);
   const [saved, setSaved] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
+  // Audio device list — loaded once on mount; empty if CPAL enumeration fails.
+  const [audioDevices, setAudioDevices] = useState<string[]>([]);
 
   useEffect(() => {
     void Promise.all([
@@ -61,6 +64,10 @@ export function SettingsView() {
         setSettings(null);
         setSnapshot(null);
       });
+    // Load available audio input devices in parallel; non-fatal if it fails.
+    void invoke<string[]>("list_audio_devices")
+      .then(setAudioDevices)
+      .catch(() => setAudioDevices([]));
   }, []);
 
   const updateSetting = async (key: keyof PersistedSettings, value: string) => {
@@ -228,6 +235,30 @@ export function SettingsView() {
           </small>
         </div>
 
+        {/* Audio device selector — only shown when CPAL can enumerate devices */}
+        {audioDevices.length > 0 && (
+          <div className="form-group">
+            <label className="form-label" htmlFor="audio-device">
+              {t("settings.audio_device")}
+            </label>
+            <select
+              id="audio-device"
+              className="form-select"
+              value={settings.audio_device ?? "default"}
+              onChange={(e) => void updateSetting("audio_device", e.target.value)}
+              style={{ maxWidth: "28rem" }}
+            >
+              <option value="default">{t("settings.audio_device_default")}</option>
+              {audioDevices.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+            <small style={{ display: "block", marginTop: "0.35rem", color: "var(--color-text-muted)", fontSize: "0.8rem" }}>
+              {t("settings.audio_device_hint")}
+            </small>
+          </div>
+        )}
+
         <div className="form-group">
           <label className="form-label" htmlFor="default-meeting-type">
             {t("settings.default_meeting_type")}
@@ -242,6 +273,7 @@ export function SettingsView() {
             <option value="consulting">{t("meeting_types.consulting")}</option>
             <option value="legal">{t("meeting_types.legal")}</option>
             <option value="internal">{t("meeting_types.internal")}</option>
+            <option value="custom">{t("meeting_types.custom")}</option>
           </select>
         </div>
 

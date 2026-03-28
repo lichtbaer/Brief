@@ -325,7 +325,7 @@ impl Storage {
 
         let rows = if let Some(cursor) = before {
             sqlx::query(
-                "SELECT id, created_at, meeting_type, title, output_json, tags_json
+                "SELECT id, created_at, meeting_type, title, output_json, tags_json, duration_seconds
                  FROM meetings WHERE deleted_at IS NULL AND created_at < ?
                  ORDER BY created_at DESC
                  LIMIT ?",
@@ -337,7 +337,7 @@ impl Storage {
             .map_err(|e| format!("list_meetings_paginated failed: {}", e))?
         } else {
             sqlx::query(
-                "SELECT id, created_at, meeting_type, title, output_json, tags_json
+                "SELECT id, created_at, meeting_type, title, output_json, tags_json, duration_seconds
                  FROM meetings WHERE deleted_at IS NULL
                  ORDER BY created_at DESC
                  LIMIT ?",
@@ -374,7 +374,7 @@ impl Storage {
     /// Legacy helper kept for internal tests that do not require pagination metadata.
     pub async fn list_meetings(&self) -> Result<String, String> {
         let rows = sqlx::query(
-            "SELECT id, created_at, meeting_type, title, output_json, tags_json
+            "SELECT id, created_at, meeting_type, title, output_json, tags_json, duration_seconds
              FROM meetings WHERE deleted_at IS NULL
              ORDER BY created_at DESC
              LIMIT 100",
@@ -385,6 +385,112 @@ impl Storage {
 
         let meetings: Vec<serde_json::Value> = rows.iter().map(row_to_meeting_summary).collect();
         serde_json::to_string(&meetings).map_err(|e| e.to_string())
+    }
+
+    /// Soft-deletes a meeting by setting `deleted_at` and removes it from the FTS index.
+    /// Soft delete preserves the row for potential future recovery; the row is invisible to
+    /// all list/get queries that filter on `deleted_at IS NULL`.
+    pub async fn delete_meeting(&self, id: &str) -> Result<(), String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Transaction begin failed: {}", e))?;
+
+        let affected = sqlx::query(
+            "UPDATE meetings SET deleted_at = datetime('now') WHERE id = ? AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("delete_meeting failed: {}", e))?
+        .rows_affected();
+
+        if affected == 0 {
+            return Err(crate::error::AppError::MeetingNotFound(id.to_string()).to_string());
+        }
+
+        // Remove from FTS index so deleted meetings no longer appear in search results.
+        sqlx::query("DELETE FROM meetings_fts WHERE id = ?")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("FTS delete failed: {}", e))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| format!("Commit failed: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Updates the title of an existing meeting and keeps the FTS index in sync.
+    /// Returns an error if the meeting does not exist or the title is blank.
+    pub async fn update_meeting_title(&self, id: &str, title: &str) -> Result<(), String> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err("Meeting title must not be empty".to_string());
+        }
+
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Transaction begin failed: {}", e))?;
+
+        let affected = sqlx::query(
+            "UPDATE meetings SET title = ? WHERE id = ? AND deleted_at IS NULL",
+        )
+        .bind(title)
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("update_meeting_title failed: {}", e))?
+        .rows_affected();
+
+        if affected == 0 {
+            return Err(crate::error::AppError::MeetingNotFound(id.to_string()).to_string());
+        }
+
+        // Keep the FTS index in sync so search reflects the new title immediately.
+        sqlx::query(
+            "UPDATE meetings_fts SET title = ? WHERE id = ?",
+        )
+        .bind(title)
+        .bind(id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("FTS title update failed: {}", e))?;
+
+        tx.commit()
+            .await
+            .map_err(|e| format!("Commit failed: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Replaces the `output_json` for an existing meeting (used by regenerate_summary).
+    /// Returns an error if the meeting is not found.
+    pub async fn update_meeting_output(
+        &self,
+        id: &str,
+        output: &crate::types::MeetingOutput,
+    ) -> Result<(), String> {
+        let output_json = serde_json::to_string(output).map_err(|e| e.to_string())?;
+        let affected = sqlx::query(
+            "UPDATE meetings SET output_json = ? WHERE id = ? AND deleted_at IS NULL",
+        )
+        .bind(&output_json)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("update_meeting_output failed: {}", e))?
+        .rows_affected();
+
+        if affected == 0 {
+            return Err(crate::error::AppError::MeetingNotFound(id.to_string()).to_string());
+        }
+        Ok(())
     }
 
     /// Updates the tags for an existing meeting identified by `id`.
@@ -408,10 +514,28 @@ impl Storage {
         Ok(())
     }
 
+    /// Returns all non-deleted meeting summaries with the given `meeting_type` (newest first).
+    pub async fn list_meetings_by_type(&self, meeting_type: &str) -> Result<String, String> {
+        let rows = sqlx::query(
+            "SELECT id, created_at, meeting_type, title, output_json, tags_json, duration_seconds
+             FROM meetings
+             WHERE deleted_at IS NULL AND meeting_type = ?
+             ORDER BY created_at DESC
+             LIMIT 100",
+        )
+        .bind(meeting_type)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("list_meetings_by_type failed: {}", e))?;
+
+        let meetings: Vec<serde_json::Value> = rows.iter().map(row_to_meeting_summary).collect();
+        serde_json::to_string(&meetings).map_err(|e| e.to_string())
+    }
+
     /// Returns meeting summaries that contain the given tag (exact match via `json_each`).
     pub async fn list_meetings_by_tag(&self, tag: &str) -> Result<String, String> {
         let rows = sqlx::query(
-            "SELECT id, created_at, meeting_type, title, output_json, tags_json
+            "SELECT id, created_at, meeting_type, title, output_json, tags_json, duration_seconds
              FROM meetings
              WHERE deleted_at IS NULL
                AND EXISTS (
@@ -461,7 +585,7 @@ impl Storage {
         };
 
         let rows = sqlx::query(
-            "SELECT m.id, m.created_at, m.meeting_type, m.title, m.output_json
+            "SELECT m.id, m.created_at, m.meeting_type, m.title, m.output_json, m.tags_json, m.duration_seconds
              FROM meetings_fts
              JOIN meetings m ON m.id = meetings_fts.id
              WHERE meetings_fts MATCH ?1
@@ -517,8 +641,8 @@ impl Storage {
     }
 }
 
-/// Maps a database row (with id, created_at, meeting_type, title, output_json, tags_json columns)
-/// to a summary JSON object used in the meeting list and history view.
+/// Maps a database row (with id, created_at, meeting_type, title, output_json, tags_json,
+/// duration_seconds columns) to a summary JSON object used in the meeting list and history view.
 fn row_to_meeting_summary(r: &sqlx::sqlite::SqliteRow) -> serde_json::Value {
     let output_str: String = r.get("output_json");
     let output: serde_json::Value =
@@ -535,6 +659,7 @@ fn row_to_meeting_summary(r: &sqlx::sqlite::SqliteRow) -> serde_json::Value {
         "title": r.get::<String, _>("title"),
         "summary_short": output["summary_short"],
         "action_items_count": action_items_count,
+        "duration_seconds": r.get::<i64, _>("duration_seconds"),
         "tags": tags,
     })
 }
