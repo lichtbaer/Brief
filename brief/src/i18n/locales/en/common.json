@@ -67,7 +67,11 @@
     "loading": "Loading meetings…",
     "empty": "No meetings saved yet.",
     "empty_state": "No recordings yet. Start your first recording!",
-    "action_items_count": "{{count}} action items"
+    "action_items_count": "{{count}} action items",
+    "load_more": "Load more",
+    "loading_more": "Loading…",
+    "filter_by_tag": "Filter by tag",
+    "tag_filter_clear": "Clear filter"
   },
   "output": {
     "back": "Back",
@@ -91,7 +95,12 @@
     "export_audio": "Export audio (WAV)",
     "export_audio_success": "Audio exported to: {{path}}",
     "export_markdown": "Export as Markdown",
-    "export_pdf": "Export as PDF"
+    "export_pdf": "Export as PDF",
+    "tags_title": "Tags",
+    "tags_add_placeholder": "Add tag…",
+    "speaker_names_title": "Name speakers",
+    "speaker_name_placeholder": "Enter name…",
+    "speaker_names_hint": "Names are applied to the view only — the stored transcript is unchanged."
   },
   "settings": {
     "title": "Settings",

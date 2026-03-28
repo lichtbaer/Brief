@@ -67,7 +67,11 @@
     "loading": "Lade Meetings…",
     "empty": "Noch keine Meetings gespeichert.",
     "empty_state": "Noch keine Aufnahmen. Starte deine erste Aufnahme!",
-    "action_items_count": "{{count}} Action Items"
+    "action_items_count": "{{count}} Action Items",
+    "load_more": "Weitere laden",
+    "loading_more": "Lade weitere…",
+    "filter_by_tag": "Nach Tag filtern",
+    "tag_filter_clear": "Filter löschen"
   },
   "output": {
     "back": "Zurück",
@@ -91,7 +95,12 @@
     "export_audio": "Audio exportieren (WAV)",
     "export_audio_success": "Audio exportiert nach: {{path}}",
     "export_markdown": "Als Markdown exportieren",
-    "export_pdf": "Als PDF exportieren"
+    "export_pdf": "Als PDF exportieren",
+    "tags_title": "Tags",
+    "tags_add_placeholder": "Tag hinzufügen…",
+    "speaker_names_title": "Sprecher benennen",
+    "speaker_name_placeholder": "Name eingeben…",
+    "speaker_names_hint": "Namen werden nur in der Ansicht ersetzt — das Transkript bleibt unverändert."
   },
   "settings": {
     "title": "Einstellungen",
