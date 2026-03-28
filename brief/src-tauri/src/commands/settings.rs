@@ -134,6 +134,23 @@ pub async fn update_setting(
             .await?;
         return Ok(());
     }
+    if key == "ollama_timeout_secs" {
+        // Validate: must be a number in 30–3600 seconds (Ollama on local hardware is fast).
+        let trimmed = value.trim();
+        let v: u64 = trimmed.parse().map_err(|_| {
+            AppError::ValidationError("Ollama timeout must be a positive number (seconds)".into())
+        })?;
+        if !(30..=3600).contains(&v) {
+            return Err(
+                AppError::ValidationError("Allowed range: 30 to 3600 seconds".into()).into(),
+            );
+        }
+        let storage = state.storage.lock().await;
+        storage
+            .set_setting("ollama_timeout_secs", &v.to_string())
+            .await?;
+        return Ok(());
+    }
     if key == "meeting_language" {
         let trimmed = value.trim().to_lowercase();
         if !matches!(trimmed.as_str(), "de" | "en") {

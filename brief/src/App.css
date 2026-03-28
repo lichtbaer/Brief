@@ -28,6 +28,34 @@
   --transition-base:     0.2s ease;
 }
 
+/* ─── Dark Mode Token Overrides ────────────────────────────────────────────── */
+/* Automatically applied when the OS preference is dark. Overrides light-mode tokens above.
+   Initial implementation intentionally minimal — add component-level overrides incrementally. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg:            #0f1117;
+    --color-surface:       #1a1d27;
+    --color-sidebar:       #0d0f18;
+    --color-sidebar-hover: #1f2233;
+    --color-border:        #2d3045;
+    --color-text:          #e2e8f0;
+    --color-text-muted:    #94a3b8;
+    --color-text-subtle:   #4a5568;
+    --color-accent:        #60a5fa;
+    --color-primary:       #3b82f6;
+    --color-primary-hover: #2563eb;
+    --color-error:         #f87171;
+    --color-error-bg:      #2d1515;
+    --color-success:       #4ade80;
+    --color-success-bg:    #142d1e;
+    --color-warning:       #fbbf24;
+    --color-warning-bg:    #2d2209;
+    --shadow-sm:           0 1px 3px rgba(0, 0, 0, 0.4);
+    --shadow-md:           0 2px 8px rgba(0, 0, 0, 0.5);
+    --shadow-lg:           0 8px 32px rgba(0, 0, 0, 0.5);
+  }
+}
+
 /* ─── Keyframes ────────────────────────────────────────────────────────────── */
 @keyframes spin {
   to { transform: rotate(360deg); }

@@ -57,6 +57,10 @@ pub struct MeetingOutput {
     pub template_used: String,
     pub model_used: String,
     pub generated_at: String,
+    /// Prompt template version at generation time — allows detecting stale analysis when templates change.
+    /// Populated from `templates::TEMPLATE_VERSION`; empty string for legacy records without this field.
+    #[serde(default)]
+    pub template_version: String,
 }
 
 impl MeetingOutput {
@@ -72,6 +76,7 @@ impl MeetingOutput {
             template_used: meeting_type.to_string(),
             model_used: "none".to_string(),
             generated_at: chrono::Utc::now().to_rfc3339(),
+            template_version: crate::templates::TEMPLATE_VERSION.to_string(),
         }
     }
 }

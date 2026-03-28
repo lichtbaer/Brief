@@ -135,15 +135,16 @@ pub async fn process_meeting_inner(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let (ollama_url, llm_model) = {
+    let (ollama_url, llm_model, ollama_timeout_secs) = {
         let storage = state.storage.lock().await;
         storage.get_summarizer_config().await?
     };
 
     // Retry up to 3 times with 2 s / 4 s / 8 s backoff on transient network failures.
     // JSON parse errors are never retried (see `Summarizer::summarize`).
-    let summarizer = crate::summarize::Summarizer::new(Some(ollama_url), Some(llm_model))?
-        .with_retry_config(3, 2000);
+    let summarizer =
+        crate::summarize::Summarizer::new(Some(ollama_url), Some(llm_model), Some(ollama_timeout_secs))?
+            .with_retry_config(3, 2000);
     let output = if summarizer.check_available().await {
         let system_prompt = crate::templates::get_system_prompt(&meeting_type);
         summarizer

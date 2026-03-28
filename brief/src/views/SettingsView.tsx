@@ -14,6 +14,7 @@ const FALLBACK_DEFAULTS: PersistedSettings = {
   retention_days: "365",
   ui_language: "de",
   whisperx_timeout_secs: "900",
+  ollama_timeout_secs: "300",
 };
 
 /** Merges raw DB settings with defaults from the Rust backend (single source of truth). */
@@ -28,6 +29,7 @@ export function mergeSettings(raw: Record<string, string>, defaults?: SettingDef
     retention_days: raw.retention_days ?? d.retention_days,
     ui_language: raw.ui_language ?? d.ui_language,
     whisperx_timeout_secs: raw.whisperx_timeout_secs ?? d.whisperx_timeout_secs,
+    ollama_timeout_secs: raw.ollama_timeout_secs ?? d.ollama_timeout_secs,
   };
 }
 
@@ -164,6 +166,25 @@ export function SettingsView() {
             {t("settings.llm_model_override_hint")}
           </p>
         )}
+
+        <div className="form-group">
+          <label className="form-label" htmlFor="ollama-timeout-secs">
+            {t("settings.ollama_timeout")}
+          </label>
+          <input
+            id="ollama-timeout-secs"
+            type="number"
+            className="form-input"
+            value={settings.ollama_timeout_secs ?? FALLBACK_DEFAULTS.ollama_timeout_secs}
+            min={30}
+            max={3600}
+            onChange={(e) => void updateSetting("ollama_timeout_secs", e.target.value)}
+            style={{ maxWidth: "10rem" }}
+          />
+          <small style={{ display: "block", marginTop: "0.35rem", color: "var(--color-text-muted)", fontSize: "0.8rem" }}>
+            {t("settings.ollama_timeout_hint")}
+          </small>
+        </div>
       </section>
 
       {/* Recording section */}

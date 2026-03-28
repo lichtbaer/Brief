@@ -58,6 +58,7 @@
     "whisperx_unavailable": "WhisperX is not available. Please set up the Python environment: cd whisperx_runner && bash setup.sh",
     "transcription_timeout": "Transcription took too long and was stopped. Increase the timeout in settings or check WhisperX.",
     "no_microphone": "No microphone found",
+    "ollama_not_reachable": "Ollama not reachable — is `ollama serve` running?",
     "processing_failed": "Processing failed: {{message}}",
     "alert": "Error: {{message}}"
   },
@@ -71,7 +72,8 @@
     "load_more": "Load more",
     "loading_more": "Loading…",
     "filter_by_tag": "Filter by tag",
-    "tag_filter_clear": "Clear filter"
+    "tag_filter_clear": "Clear filter",
+    "search_limit_hint": "More than 20 results — refine your search for better matches."
   },
   "output": {
     "back": "Back",
@@ -100,7 +102,8 @@
     "tags_add_placeholder": "Add tag…",
     "speaker_names_title": "Name speakers",
     "speaker_name_placeholder": "Enter name…",
-    "speaker_names_hint": "Names are applied to the view only — the stored transcript is unchanged."
+    "speaker_names_hint": "Names are applied to the view only — the stored transcript is unchanged.",
+    "speaker_names_save_error": "Failed to save speaker names — please try again."
   },
   "settings": {
     "title": "Settings",
@@ -122,7 +125,9 @@
     "retention_days": "Retention period (days)",
     "retention_days_hint": "Meetings older than X days are deleted automatically",
     "memory_detected": "Detected system memory: ~{{gb}} GB",
-    "llm_model_override_hint": "Manual selection is active — automatic RAM-based recommendation is no longer applied."
+    "llm_model_override_hint": "Manual selection is active — automatic RAM-based recommendation is no longer applied.",
+    "ollama_timeout": "Ollama — maximum request time (seconds)",
+    "ollama_timeout_hint": "Default 300 (5 minutes). Increase for long meetings or slow hardware (30–3600)."
   },
   "onboarding": {
     "loading_app": "Loading…",

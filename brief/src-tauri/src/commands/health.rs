@@ -16,7 +16,7 @@ pub async fn check_whisperx() -> Result<bool, String> {
 /// Returns whether Ollama responds on localhost and the RAM-based recommended model id.
 #[tauri::command]
 pub async fn check_ollama() -> Result<serde_json::Value, String> {
-    let summarizer = summarize::Summarizer::new(None, None)?;
+    let summarizer = summarize::Summarizer::new(None, None, None)?;
     let running = summarizer.check_available().await;
     Ok(serde_json::json!({
         "running": running,

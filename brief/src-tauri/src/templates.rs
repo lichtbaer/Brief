@@ -1,5 +1,9 @@
 //! System prompts for Ollama summarization by meeting type (BRIEF-P2-002 / SMA-365).
 
+/// Template version — increment when any prompt changes so stored meetings reflect which
+/// template generated their output. Used in `MeetingOutput.template_version`.
+pub const TEMPLATE_VERSION: &str = "2";
+
 /// Returns the system prompt for the given meeting type.
 /// Used by Summarizer::summarize() to configure LLM extraction behavior.
 pub fn get_system_prompt(meeting_type: &str) -> String {
