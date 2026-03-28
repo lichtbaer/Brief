@@ -82,6 +82,42 @@ pub async fn update_meeting_tags(
     storage.update_meeting_tags(&id, &validated).await
 }
 
+/// Soft-deletes a meeting by id. The row is kept in the DB with `deleted_at` set so it no
+/// longer appears in list/search but could be recovered in a future admin feature.
+#[tauri::command]
+pub async fn delete_meeting(
+    id: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let storage = state.storage.lock().await;
+    storage.delete_meeting(&id).await
+}
+
+/// Updates the title of an existing meeting (max 200 chars). Keeps the FTS index in sync.
+#[tauri::command]
+pub async fn update_meeting_title(
+    id: String,
+    title: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    // Cap title length to prevent excessively long titles in the UI and DB.
+    if title.trim().len() > 200 {
+        return Err("Meeting title too long (max 200 characters)".to_string());
+    }
+    let storage = state.storage.lock().await;
+    storage.update_meeting_title(&id, &title).await
+}
+
+/// Returns meeting summaries for a given meeting type (exact match).
+#[tauri::command]
+pub async fn list_meetings_by_type(
+    meeting_type: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let storage = state.storage.lock().await;
+    storage.list_meetings_by_type(&meeting_type).await
+}
+
 /// Returns meeting summaries that contain the given tag (exact match).
 #[tauri::command]
 pub async fn list_meetings_by_tag(

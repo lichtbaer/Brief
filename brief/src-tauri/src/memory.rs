@@ -8,13 +8,16 @@ pub fn get_available_memory_gb() -> f64 {
 }
 
 /// Ollama model id recommended for the given RAM (unified memory on Apple Silicon).
+/// Thresholds: ≤8 GB → 3B param model; ≤16 GB → 8B; ≤32 GB → 8B (sweet spot for most hardware);
+/// >32 GB → 70B model for users with high-end workstations or large-RAM laptops.
 pub fn recommended_llm_model(ram_gb: f64) -> &'static str {
     if ram_gb <= 8.0 {
         "llama3.2:3b"
-    } else if ram_gb <= 16.0 {
+    } else if ram_gb <= 32.0 {
         "llama3.1:8b"
     } else {
-        "llama3.1:8b"
+        // >32 GB: recommend a larger model that fits comfortably in VRAM/unified memory.
+        "llama3.3:70b"
     }
 }
 
@@ -75,7 +78,16 @@ mod tests {
     }
 
     #[test]
-    fn recommended_very_high_ram_uses_8b() {
-        assert_eq!(recommended_llm_model(128.0), "llama3.1:8b");
+    fn recommended_very_high_ram_uses_70b() {
+        // >32 GB systems get the 70B model recommendation.
+        assert_eq!(recommended_llm_model(64.0), "llama3.3:70b");
+        assert_eq!(recommended_llm_model(128.0), "llama3.3:70b");
+    }
+
+    #[test]
+    fn recommended_32gb_uses_8b() {
+        // 32 GB is still the 8B tier — the 70B threshold starts strictly above 32 GB.
+        assert_eq!(recommended_llm_model(32.0), "llama3.1:8b");
+        assert_eq!(recommended_llm_model(32.1), "llama3.3:70b");
     }
 }

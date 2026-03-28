@@ -13,6 +13,21 @@ use std::thread::JoinHandle;
 /// Prevents unbounded memory growth during very long recordings.
 const MAX_BUFFER_SAMPLES: usize = 48_000 * 60 * 240;
 
+/// Returns the names of all available input devices on the default CPAL host.
+/// Used by the settings screen so users can choose a non-default microphone.
+pub fn list_audio_input_devices() -> Vec<String> {
+    let host = cpal::default_host();
+    match host.input_devices() {
+        Ok(devices) => devices
+            .filter_map(|d| d.name().ok())
+            .collect(),
+        Err(e) => {
+            eprintln!("Failed to enumerate audio devices: {e}");
+            vec![]
+        }
+    }
+}
+
 /// Holds one recording session: CPAL capture on a background thread, mono buffer, WAV output at 16 kHz.
 pub struct AudioRecorder {
     pub session_id: String,
@@ -21,6 +36,8 @@ pub struct AudioRecorder {
     source_sample_rate: Option<u32>,
     stop_tx: Option<mpsc::Sender<()>>,
     join: Option<JoinHandle<()>>,
+    /// RMS of the most-recently captured block, updated by the CPAL callback. Used for the UI level meter.
+    pub last_rms: Arc<Mutex<f32>>,
 }
 
 impl AudioRecorder {
@@ -33,21 +50,38 @@ impl AudioRecorder {
             source_sample_rate: None,
             stop_tx: None,
             join: None,
+            last_rms: Arc::new(Mutex::new(0.0)),
         }
     }
 
-    /// Opens the default input device, spawns the CPAL stream on a dedicated thread (Linux `Stream` is not `Send`),
-    /// and starts filling the mono `f32` buffer until [`AudioRecorder::stop_and_save`] signals stop.
+    /// Opens the preferred input device (by name) or falls back to the system default when `device_name` is `None`
+    /// or does not match any available device. Spawns the CPAL stream on a dedicated thread (Linux `Stream` is not
+    /// `Send`) and fills the mono `f32` buffer until [`AudioRecorder::stop_and_save`] signals stop.
     pub fn start(&mut self) -> Result<(), String> {
+        self.start_with_device(None)
+    }
+
+    /// Internal implementation used by both `start()` and the settings-driven code path.
+    pub fn start_with_device(&mut self, device_name: Option<&str>) -> Result<(), String> {
         // Macro to avoid repeating the identical build_input_stream boilerplate for each SampleFormat.
         // Only the concrete sample type `$T` differs between arms; everything else is identical.
+        // The callback also computes per-block RMS and stores it in `$rms` for the level meter.
         macro_rules! build_stream_for_format {
-            ($device:expr, $config:expr, $buf:expr, $channels:expr, $err_fn:expr, $T:ty) => {{
+            ($device:expr, $config:expr, $buf:expr, $channels:expr, $err_fn:expr, $rms:expr, $T:ty) => {{
                 let buf = Arc::clone(&$buf);
+                let rms_cell = Arc::clone(&$rms);
                 $device.build_input_stream(
                     $config,
                     move |data: &[$T], _: &_| {
                         push_mono_frames(data, $channels, &buf);
+                        // Compute RMS of the incoming block for the level meter (O(block) not O(total)).
+                        if !data.is_empty() {
+                            let sum_sq: f32 = data.iter()
+                                .map(|s| { let v: f32 = (*s).to_sample::<f32>(); v * v })
+                                .sum();
+                            let rms = (sum_sq / data.len() as f32).sqrt();
+                            if let Ok(mut r) = rms_cell.lock() { *r = rms; }
+                        }
                     },
                     $err_fn,
                     None,
@@ -55,9 +89,16 @@ impl AudioRecorder {
             }};
         }
         let host = cpal::default_host();
-        let device = host
-            .default_input_device()
-            .ok_or_else(|| "No microphone found".to_string())?;
+        // If a specific device name is requested, attempt to match it; fall back to default on miss.
+        let device = if let Some(name) = device_name {
+            host.input_devices()
+                .ok()
+                .and_then(|mut devs| devs.find(|d| d.name().ok().as_deref() == Some(name)))
+                .or_else(|| host.default_input_device())
+        } else {
+            host.default_input_device()
+        }
+        .ok_or_else(|| "No microphone found".to_string())?;
 
         let supported = device.default_input_config().map_err(|e| e.to_string())?;
 
@@ -68,6 +109,7 @@ impl AudioRecorder {
         let stream_config: cpal::StreamConfig = supported.clone().into();
         let sample_format = supported.sample_format();
         let buffer = Arc::clone(&self.buffer);
+        let last_rms = Arc::clone(&self.last_rms);
 
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
 
@@ -75,16 +117,16 @@ impl AudioRecorder {
             let err_fn = |err: cpal::StreamError| eprintln!("Audio error: {err}");
 
             let stream_result = match sample_format {
-                cpal::SampleFormat::I8 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, i8),
-                cpal::SampleFormat::I16 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, i16),
-                cpal::SampleFormat::I32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, i32),
-                cpal::SampleFormat::I64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, i64),
-                cpal::SampleFormat::U8 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, u8),
-                cpal::SampleFormat::U16 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, u16),
-                cpal::SampleFormat::U32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, u32),
-                cpal::SampleFormat::U64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, u64),
-                cpal::SampleFormat::F32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, f32),
-                cpal::SampleFormat::F64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, f64),
+                cpal::SampleFormat::I8 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, i8),
+                cpal::SampleFormat::I16 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, i16),
+                cpal::SampleFormat::I32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, i32),
+                cpal::SampleFormat::I64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, i64),
+                cpal::SampleFormat::U8 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, u8),
+                cpal::SampleFormat::U16 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, u16),
+                cpal::SampleFormat::U32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, u32),
+                cpal::SampleFormat::U64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, u64),
+                cpal::SampleFormat::F32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, f32),
+                cpal::SampleFormat::F64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, f64),
                 f => {
                     eprintln!("Unsupported audio sample format: {f}");
                     return;

@@ -105,12 +105,16 @@ pub fn run() {
             commands::recording::check_orphaned_recordings,
             commands::recording::recover_orphaned_recording,
             commands::recording::discard_orphaned_recording,
+            commands::recording::regenerate_summary,
             commands::meetings::get_meeting,
             commands::meetings::list_meetings,
             commands::meetings::search_meetings,
             commands::meetings::update_meeting_tags,
             commands::meetings::list_meetings_by_tag,
             commands::meetings::update_speaker_names,
+            commands::meetings::update_meeting_title,
+            commands::meetings::delete_meeting,
+            commands::meetings::list_meetings_by_type,
             commands::export::export_markdown,
             commands::export::export_pdf,
             commands::export::get_audio_path,
@@ -125,6 +129,8 @@ pub fn run() {
             commands::settings::update_setting,
             commands::health::check_whisperx,
             commands::health::check_ollama,
+            commands::audio::list_audio_devices,
+            commands::audio::get_audio_level,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -36,9 +36,20 @@ pub async fn start_recording(
     meeting_type: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
+    // Read the preferred audio device from settings; "default" or missing means use system default.
+    let audio_device: Option<String> = {
+        let storage = state.storage.lock().await;
+        storage
+            .get_setting("audio_device")
+            .await
+            .ok()
+            .flatten()
+            .filter(|d| !d.is_empty() && d != "default")
+    };
+
     let session_id = uuid::Uuid::new_v4().to_string();
     let mut recorder = AudioRecorder::new(session_id.clone(), meeting_type);
-    recorder.start()?;
+    recorder.start_with_device(audio_device.as_deref())?;
 
     state
         .recordings
@@ -292,6 +303,61 @@ pub async fn recover_orphaned_recording(
         &state,
     )
     .await
+}
+
+/// Re-runs the Ollama summarizer on an existing meeting's stored transcript.
+/// Useful when the initial summary was poor or the user wants a different meeting type applied.
+/// Returns the full updated meeting JSON or an error if Ollama is unreachable.
+#[tauri::command]
+pub async fn regenerate_summary(
+    id: String,
+    meeting_type: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    // Load the existing meeting to get its transcript.
+    let meeting_json = {
+        let storage = state.storage.lock().await;
+        storage
+            .get_meeting(&id)
+            .await?
+            .ok_or_else(|| crate::error::AppError::MeetingNotFound(id.clone()).to_string())?
+    };
+
+    let meeting: crate::types::Meeting =
+        serde_json::from_str(&meeting_json).map_err(|e| e.to_string())?;
+
+    let (ollama_url, llm_model, ollama_timeout_secs) = {
+        let storage = state.storage.lock().await;
+        storage.get_summarizer_config().await?
+    };
+
+    let summarizer =
+        crate::summarize::Summarizer::new(Some(ollama_url), Some(llm_model), Some(ollama_timeout_secs))?
+            .with_retry_config(3, 2000);
+
+    if !summarizer.check_available().await {
+        return Err("Ollama not reachable — is `ollama serve` running?".to_string());
+    }
+
+    let system_prompt = crate::templates::get_system_prompt(&meeting_type);
+    let new_output = summarizer
+        .summarize(&meeting.transcript, &system_prompt, &meeting_type)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    {
+        let storage = state.storage.lock().await;
+        storage.update_meeting_output(&id, &new_output).await?;
+    }
+
+    // Return the refreshed meeting with the new output for the frontend to display.
+    let updated_meeting = crate::types::Meeting {
+        output: new_output,
+        meeting_type: meeting_type.clone(),
+        ..meeting
+    };
+
+    serde_json::to_string(&updated_meeting).map_err(|e| e.to_string())
 }
 
 /// Deletes an orphaned temp WAV after explicit user confirmation (never silent).
