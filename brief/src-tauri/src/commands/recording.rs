@@ -140,7 +140,10 @@ pub async fn process_meeting_inner(
         storage.get_summarizer_config().await?
     };
 
-    let summarizer = crate::summarize::Summarizer::new(Some(ollama_url), Some(llm_model))?;
+    // Retry up to 3 times with 2 s / 4 s / 8 s backoff on transient network failures.
+    // JSON parse errors are never retried (see `Summarizer::summarize`).
+    let summarizer = crate::summarize::Summarizer::new(Some(ollama_url), Some(llm_model))?
+        .with_retry_config(3, 2000);
     let output = if summarizer.check_available().await {
         let system_prompt = crate::templates::get_system_prompt(&meeting_type);
         summarizer

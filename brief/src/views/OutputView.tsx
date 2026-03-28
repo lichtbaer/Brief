@@ -1,6 +1,6 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import type { CSSProperties } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useExport } from "../hooks/useExport";
 import type {
@@ -28,6 +28,26 @@ const PRIORITY_BADGE_STYLE: Record<
   low: { backgroundColor: "#dcfce7", color: "#166534", borderColor: "#4ade80" },
 };
 
+/** Extracts unique speaker label IDs from a raw transcript string (e.g. "SPEAKER_00", "SPEAKER_01"). */
+function extractSpeakers(transcript: string): string[] {
+  const matches = [...transcript.matchAll(/\[([A-Z_0-9]+)\]/g)];
+  return [...new Set(matches.map((m) => m[1]))];
+}
+
+/**
+ * Replaces speaker label brackets in the displayed transcript with user-defined names.
+ * The original stored transcript is never modified — substitution is view-only.
+ * Uses global regex replace for ES2020 compatibility (no String.prototype.replaceAll).
+ */
+function applyNames(transcript: string, names: Record<string, string>): string {
+  return Object.entries(names).reduce((t, [id, name]) => {
+    if (!name.trim()) return t;
+    // Escape the label for use in a regex (brackets are special regex chars).
+    const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return t.replace(new RegExp(`\\[${escaped}\\]`, "g"), `[${name.trim()}]`);
+  }, transcript);
+}
+
 interface OutputViewProps {
   /** Meeting to display (summary, topics, transcript, optional retained audio). */
   meeting: Meeting;
@@ -36,7 +56,8 @@ interface OutputViewProps {
 }
 
 /**
- * Read-only meeting detail: audio playback (if stored), AI output sections, Markdown/PDF/audio export via Tauri + system dialogs.
+ * Read-only meeting detail: audio playback (if stored), AI output sections, tags editor,
+ * speaker naming panel, and Markdown/PDF/audio export via Tauri + system dialogs.
  *
  * @param props.meeting — loaded meeting record.
  * @param props.onBack — header back action.
@@ -46,6 +67,20 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
   const { exportBusy, exportError, exportMarkdown, exportPdf, exportAudio } = useExport();
   const [copied, setCopied] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
+  // Tags state — initialised from the loaded meeting, then kept in sync locally after mutations.
+  const [tags, setTags] = useState<string[]>(meeting.tags ?? []);
+  const [tagInput, setTagInput] = useState("");
+
+  // Speaker name mapping state — keyed by speaker label (e.g. "SPEAKER_00").
+  const [speakerNames, setSpeakerNames] = useState<Record<string, string>>(
+    meeting.speaker_names ?? {}
+  );
+  const speakers = extractSpeakers(meeting.transcript);
+
+  // Ref holding the latest names to avoid stale closure in the blur handler.
+  const speakerNamesRef = useRef(speakerNames);
+  speakerNamesRef.current = speakerNames;
 
   // Segment-level playback (per speaker) is planned for v1.1 — depends on diarization (BRIEF-SPIKE-001 / ADR-010).
   useEffect(() => {
@@ -83,6 +118,41 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
     void navigator.clipboard.writeText(followUpText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  /** Adds a new tag (commit on Enter or comma) and persists to backend. */
+  const commitTag = async (raw: string) => {
+    const tag = raw.replace(/,/g, "").trim();
+    if (!tag || tags.includes(tag) || tag.length > 50) return;
+    const updated = [...tags, tag];
+    setTags(updated);
+    setTagInput("");
+    try {
+      await invoke("update_meeting_tags", { id: meeting.id, tags: updated });
+    } catch {
+      // Revert optimistic update on failure.
+      setTags(tags);
+    }
+  };
+
+  /** Removes an existing tag and persists to backend. */
+  const removeTag = async (tag: string) => {
+    const updated = tags.filter((t) => t !== tag);
+    setTags(updated);
+    try {
+      await invoke("update_meeting_tags", { id: meeting.id, tags: updated });
+    } catch {
+      setTags(tags);
+    }
+  };
+
+  /** Persists the full speaker names map after a single field loses focus. */
+  const persistSpeakerNames = async (names: Record<string, string>) => {
+    try {
+      await invoke("update_speaker_names", { id: meeting.id, names });
+    } catch {
+      // Failure is non-critical — names are cosmetic and will be re-entered on next open.
+    }
   };
 
   return (
@@ -149,6 +219,75 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
           ) : null}
         </div>
       </div>
+
+      {/* Tags section */}
+      <section className="output-section">
+        <h2>{t("output.tags_title")}</h2>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", marginTop: "0.5rem", alignItems: "center" }}>
+          {tags.map((tag) => (
+            <span
+              key={tag}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.25rem",
+                fontSize: "0.8rem",
+                padding: "0.15rem 0.55rem",
+                borderRadius: "999px",
+                border: "1px solid var(--color-border, #d1d5db)",
+                color: "var(--color-text-muted)",
+              }}
+            >
+              {tag}
+              <button
+                type="button"
+                onClick={() => void removeTag(tag)}
+                aria-label={`Remove tag ${tag}`}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: 0,
+                  lineHeight: 1,
+                  color: "var(--color-text-subtle)",
+                  fontSize: "0.9rem",
+                }}
+              >
+                ×
+              </button>
+            </span>
+          ))}
+          <input
+            type="text"
+            value={tagInput}
+            placeholder={t("output.tags_add_placeholder")}
+            onChange={(e) => {
+              const val = e.target.value;
+              // Commit immediately when the user types a comma.
+              if (val.includes(",")) {
+                void commitTag(val);
+              } else {
+                setTagInput(val);
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                void commitTag(tagInput);
+              }
+            }}
+            style={{
+              fontSize: "0.8rem",
+              border: "1px solid var(--color-border, #d1d5db)",
+              borderRadius: "999px",
+              padding: "0.15rem 0.6rem",
+              outline: "none",
+              background: "transparent",
+              color: "var(--color-text)",
+              minWidth: "8rem",
+            }}
+          />
+        </div>
+      </section>
 
       <section className="output-section">
         <h2>{t("output.audio_recording")}</h2>
@@ -261,13 +400,57 @@ export function OutputView({ meeting, onBack }: OutputViewProps) {
         </section>
       )}
 
+      {/* Speaker naming panel — only shown when the transcript contains diarized speaker labels */}
+      {speakers.length > 0 && (
+        <section className="output-section">
+          <h2>{t("output.speaker_names_title")}</h2>
+          <p style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", marginTop: "0.25rem", marginBottom: "0.75rem" }}>
+            {t("output.speaker_names_hint")}
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+            {speakers.map((id) => (
+              <div key={id} style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                <span
+                  style={{
+                    fontSize: "0.8rem",
+                    fontFamily: "monospace",
+                    color: "var(--color-text-muted)",
+                    minWidth: "8rem",
+                  }}
+                >
+                  {id}
+                </span>
+                <input
+                  type="text"
+                  value={speakerNames[id] ?? ""}
+                  placeholder={t("output.speaker_name_placeholder")}
+                  onChange={(e) => {
+                    // Update local state immediately for responsive UX.
+                    const updated = { ...speakerNamesRef.current, [id]: e.target.value };
+                    setSpeakerNames(updated);
+                  }}
+                  onBlur={() => {
+                    // Persist the full map once the user leaves the input field.
+                    void persistSpeakerNames(speakerNamesRef.current);
+                  }}
+                  className="form-input"
+                  style={{ maxWidth: "16rem", fontSize: "0.875rem" }}
+                />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="output-section">
         <details>
           <summary style={{ cursor: "pointer", userSelect: "none", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--color-text-subtle)", fontWeight: 600 }}>
             {t("output.transcript")}
           </summary>
+          {/* Apply speaker name substitutions at render time only.
+              The stored transcript preserves original labels for FTS indexing. */}
           <pre className="transcript" style={{ marginTop: "0.5rem", fontFamily: "inherit" }}>
-            {meeting.transcript}
+            {applyNames(meeting.transcript, speakerNames)}
           </pre>
         </details>
       </section>

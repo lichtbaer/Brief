@@ -1,10 +1,17 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 use crate::types::MeetingOutput;
 
 const DEFAULT_OLLAMA_URL: &str = "http://localhost:11434";
 const DEFAULT_LLM_MODEL: &str = "llama3.1:8b";
+
+/// Default number of retry attempts on transient network errors.
+const DEFAULT_MAX_RETRIES: u32 = 3;
+
+/// Default initial backoff delay in milliseconds (doubles with each retry).
+const DEFAULT_RETRY_BACKOFF_MS: u64 = 2000;
 
 #[derive(Serialize)]
 struct OllamaChatRequest {
@@ -34,19 +41,34 @@ pub struct Summarizer {
     client: Client,
     ollama_url: String,
     model: String,
+    /// Maximum number of retry attempts on transient network errors (not JSON parse errors).
+    max_retries: u32,
+    /// Initial backoff in milliseconds; doubles with each retry attempt.
+    retry_backoff_ms: u64,
 }
 
 impl Summarizer {
     pub fn new(ollama_url: Option<String>, model: Option<String>) -> Result<Self, String> {
         let client = Client::builder()
-            .timeout(std::time::Duration::from_secs(300))
+            .timeout(Duration::from_secs(300))
             .build()
             .map_err(|e| format!("HTTP client error: {}", e))?;
         Ok(Summarizer {
             client,
             ollama_url: ollama_url.unwrap_or_else(|| DEFAULT_OLLAMA_URL.to_string()),
             model: model.unwrap_or_else(|| DEFAULT_LLM_MODEL.to_string()),
+            max_retries: DEFAULT_MAX_RETRIES,
+            retry_backoff_ms: DEFAULT_RETRY_BACKOFF_MS,
         })
+    }
+
+    /// Configures retry behaviour. Call this after `new()` before `summarize()`.
+    /// `max_retries` is the number of additional attempts (0 = single try, no retry).
+    /// `backoff_ms` is the initial delay; it doubles with each successive attempt.
+    pub fn with_retry_config(mut self, max_retries: u32, backoff_ms: u64) -> Self {
+        self.max_retries = max_retries;
+        self.retry_backoff_ms = backoff_ms;
+        self
     }
 
     pub async fn check_available(&self) -> bool {
@@ -58,9 +80,44 @@ impl Summarizer {
             .unwrap_or(false)
     }
 
-    /// Summarize a transcript using the given template prompt.
-    /// Returns a MeetingOutput or an error string.
+    /// Summarize a transcript using the given template prompt, with automatic retry on transient
+    /// network errors. JSON parse failures are not retried (the model returned malformed output
+    /// and a second attempt is unlikely to improve the result).
+    /// Returns a MeetingOutput or an error string after all retries are exhausted.
     pub async fn summarize(
+        &self,
+        transcript: &str,
+        system_prompt: &str,
+        meeting_type: &str,
+    ) -> Result<MeetingOutput, String> {
+        let mut last_err = String::new();
+
+        for attempt in 0..=self.max_retries {
+            if attempt > 0 {
+                // Exponential backoff: 2s, 4s, 8s, … capped by the retry count.
+                let delay_ms = self.retry_backoff_ms * (1u64 << (attempt - 1));
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+            }
+
+            match self.attempt_summarize(transcript, system_prompt, meeting_type).await {
+                Ok(output) => return Ok(output),
+                Err(e) => {
+                    // Do not retry JSON parse errors: the model returned bad JSON and retrying
+                    // is unlikely to produce valid output from the same prompt.
+                    if is_parse_error(&e) || attempt == self.max_retries {
+                        return Err(e);
+                    }
+                    last_err = e;
+                }
+            }
+        }
+
+        // Unreachable in practice (loop always returns), but satisfies the compiler.
+        Err(last_err)
+    }
+
+    /// Single HTTP call to Ollama — extracted so the retry loop in `summarize()` is clean.
+    async fn attempt_summarize(
         &self,
         transcript: &str,
         system_prompt: &str,
@@ -101,6 +158,12 @@ impl Summarizer {
 
         parse_meeting_output(&result.message.content, meeting_type, &self.model)
     }
+}
+
+/// Returns true when the error originates from JSON parsing rather than from a network or HTTP
+/// failure. Parse errors should not be retried — the model returned malformed output.
+fn is_parse_error(err: &str) -> bool {
+    err.contains("JSON parse error")
 }
 
 fn parse_meeting_output(
@@ -292,5 +355,31 @@ mod tests {
         let out = parse_meeting_output(raw, "consulting", "m").unwrap();
         assert_eq!(out.decisions.len(), 1);
         assert_eq!(out.decisions[0]["context"], "Approved by CEO");
+    }
+
+    // -- is_parse_error --
+
+    #[test]
+    fn is_parse_error_detects_json_parse_string() {
+        assert!(is_parse_error("JSON parse error: unexpected token"));
+        assert!(is_parse_error("JSON parse error — Raw: {bad}"));
+    }
+
+    #[test]
+    fn is_parse_error_ignores_network_errors() {
+        assert!(!is_parse_error("Ollama not reachable — is `ollama serve` running?"));
+        assert!(!is_parse_error("Ollama error: HTTP 503"));
+        assert!(!is_parse_error("connection refused"));
+    }
+
+    // -- with_retry_config builder --
+
+    #[test]
+    fn with_retry_config_overrides_defaults() {
+        let s = super::Summarizer::new(None, None)
+            .unwrap()
+            .with_retry_config(5, 500);
+        assert_eq!(s.max_retries, 5);
+        assert_eq!(s.retry_backoff_ms, 500);
     }
 }

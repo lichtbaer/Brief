@@ -97,6 +97,9 @@ export interface Meeting {
   output: MeetingOutput;
   audio_path: string | null;
   tags: string[];
+  /** Speaker label → display name mapping (e.g. { "SPEAKER_00": "Alice" }).
+   *  Applied at display time only — the stored transcript preserves original labels for FTS. */
+  speaker_names?: Record<string, string>;
 }
 
 /** One diarized utterance; mirrors `transcribe::DiarizedSegment` in the Tauri backend. */

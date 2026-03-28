@@ -132,6 +132,25 @@ impl Storage {
             .await
             .map_err(|e| format!("Default settings failed: {}", e))?;
 
+        // Migration: add speaker_names_json column if it doesn't exist yet (existing installs).
+        // SQLite does not support `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, so we check first.
+        let cols: Vec<String> = sqlx::query("PRAGMA table_info(meetings)")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| format!("PRAGMA table_info failed: {}", e))?
+            .into_iter()
+            .map(|r| r.get::<String, _>("name"))
+            .collect();
+
+        if !cols.contains(&"speaker_names_json".to_string()) {
+            sqlx::query(
+                "ALTER TABLE meetings ADD COLUMN speaker_names_json TEXT DEFAULT '{}'",
+            )
+            .execute(&self.pool)
+            .await
+            .map_err(|e| format!("Migration failed (speaker_names_json): {}", e))?;
+        }
+
         // Upgrades: users who already have meetings should not see first-run onboarding.
         let meeting_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM meetings")
             .fetch_one(&self.pool)
@@ -286,10 +305,69 @@ impl Storage {
         Ok(())
     }
 
-    /// Returns meeting summaries (newest first), without full transcript.
+    /// Returns meeting summaries (newest first, page size 20), without full transcript.
+    /// Uses cursor-based pagination: pass `before` (a `created_at` ISO timestamp) to fetch
+    /// the next page. Returns `{ "meetings": [...], "has_more": bool, "next_cursor": string | null }`.
+    pub async fn list_meetings_paginated(
+        &self,
+        before: Option<&str>,
+        limit: u32,
+    ) -> Result<String, String> {
+        // Fetch one extra row beyond the page size to determine whether a next page exists.
+        let fetch_limit = i64::from(limit) + 1;
+
+        let rows = if let Some(cursor) = before {
+            sqlx::query(
+                "SELECT id, created_at, meeting_type, title, output_json, tags_json
+                 FROM meetings WHERE deleted_at IS NULL AND created_at < ?
+                 ORDER BY created_at DESC
+                 LIMIT ?",
+            )
+            .bind(cursor)
+            .bind(fetch_limit)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| format!("list_meetings_paginated failed: {}", e))?
+        } else {
+            sqlx::query(
+                "SELECT id, created_at, meeting_type, title, output_json, tags_json
+                 FROM meetings WHERE deleted_at IS NULL
+                 ORDER BY created_at DESC
+                 LIMIT ?",
+            )
+            .bind(fetch_limit)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| format!("list_meetings_paginated failed: {}", e))?
+        };
+
+        let has_more = rows.len() as u32 > limit;
+        // Return only the requested page (drop the sentinel row).
+        let page = if has_more { &rows[..limit as usize] } else { &rows[..] };
+
+        let meetings: Vec<serde_json::Value> = page.iter().map(row_to_meeting_summary).collect();
+
+        // The cursor for the next page is the `created_at` of the last returned row.
+        let next_cursor: serde_json::Value = if has_more {
+            page.last()
+                .map(|r| serde_json::Value::String(r.get::<String, _>("created_at")))
+                .unwrap_or(serde_json::Value::Null)
+        } else {
+            serde_json::Value::Null
+        };
+
+        serde_json::to_string(&serde_json::json!({
+            "meetings": meetings,
+            "has_more": has_more,
+            "next_cursor": next_cursor,
+        }))
+        .map_err(|e| e.to_string())
+    }
+
+    /// Legacy helper kept for internal tests that do not require pagination metadata.
     pub async fn list_meetings(&self) -> Result<String, String> {
         let rows = sqlx::query(
-            "SELECT id, created_at, meeting_type, title, output_json
+            "SELECT id, created_at, meeting_type, title, output_json, tags_json
              FROM meetings WHERE deleted_at IS NULL
              ORDER BY created_at DESC
              LIMIT 100",
@@ -300,6 +378,73 @@ impl Storage {
 
         let meetings: Vec<serde_json::Value> = rows.iter().map(row_to_meeting_summary).collect();
         serde_json::to_string(&meetings).map_err(|e| e.to_string())
+    }
+
+    /// Updates the tags for an existing meeting identified by `id`.
+    /// Tags are validated: each tag must be non-empty and at most 50 characters;
+    /// a maximum of 20 tags is allowed per meeting.
+    pub async fn update_meeting_tags(&self, id: &str, tags: &[String]) -> Result<(), String> {
+        let tags_json = serde_json::to_string(tags).map_err(|e| e.to_string())?;
+        let affected = sqlx::query(
+            "UPDATE meetings SET tags_json = ? WHERE id = ? AND deleted_at IS NULL",
+        )
+        .bind(&tags_json)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("update_meeting_tags failed: {}", e))?
+        .rows_affected();
+
+        if affected == 0 {
+            return Err(crate::error::AppError::MeetingNotFound(id.to_string()).to_string());
+        }
+        Ok(())
+    }
+
+    /// Returns meeting summaries that contain the given tag (exact match via `json_each`).
+    pub async fn list_meetings_by_tag(&self, tag: &str) -> Result<String, String> {
+        let rows = sqlx::query(
+            "SELECT id, created_at, meeting_type, title, output_json, tags_json
+             FROM meetings
+             WHERE deleted_at IS NULL
+               AND EXISTS (
+                 SELECT 1 FROM json_each(tags_json) WHERE value = ?1
+               )
+             ORDER BY created_at DESC
+             LIMIT 100",
+        )
+        .bind(tag)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("list_meetings_by_tag failed: {}", e))?;
+
+        let meetings: Vec<serde_json::Value> = rows.iter().map(row_to_meeting_summary).collect();
+        serde_json::to_string(&meetings).map_err(|e| e.to_string())
+    }
+
+    /// Updates the speaker name mapping for an existing meeting.
+    /// The map keys are speaker labels (e.g. "SPEAKER_00") and values are display names.
+    /// The transcript column is NOT modified — names are applied at display time only.
+    pub async fn update_speaker_names(
+        &self,
+        id: &str,
+        names: &std::collections::HashMap<String, String>,
+    ) -> Result<(), String> {
+        let names_json = serde_json::to_string(names).map_err(|e| e.to_string())?;
+        let affected = sqlx::query(
+            "UPDATE meetings SET speaker_names_json = ? WHERE id = ? AND deleted_at IS NULL",
+        )
+        .bind(&names_json)
+        .bind(id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("update_speaker_names failed: {}", e))?
+        .rows_affected();
+
+        if affected == 0 {
+            return Err(crate::error::AppError::MeetingNotFound(id.to_string()).to_string());
+        }
+        Ok(())
     }
 
     /// Full-text search across meeting titles and transcripts (FTS5).
@@ -327,10 +472,11 @@ impl Storage {
     }
 
     /// Loads one non-deleted meeting as a JSON string for the frontend, or `None` if absent.
+    /// Includes `speaker_names` (a map of speaker label → display name) for display-layer substitution.
     pub async fn get_meeting(&self, id: &str) -> Result<Option<String>, String> {
         let row = sqlx::query(
             "SELECT id, created_at, ended_at, duration_seconds, meeting_type,
-             title, transcript, output_json, audio_path, tags_json
+             title, transcript, output_json, audio_path, tags_json, speaker_names_json
              FROM meetings WHERE id = ? AND deleted_at IS NULL",
         )
         .bind(id)
@@ -341,6 +487,8 @@ impl Storage {
         Ok(row.map(|r| {
             let output_json: String = r.get("output_json");
             let tags_json: String = r.get("tags_json");
+            // speaker_names_json may be NULL for rows created before the migration.
+            let speaker_names_json: Option<String> = r.get("speaker_names_json");
             json!({
                 "id": r.get::<String, _>("id"),
                 "created_at": r.get::<String, _>("created_at"),
@@ -352,19 +500,27 @@ impl Storage {
                 "output": serde_json::from_str::<serde_json::Value>(&output_json).unwrap_or_else(|_| json!({})),
                 "audio_path": r.get::<Option<String>, _>("audio_path"),
                 "tags": serde_json::from_str::<serde_json::Value>(&tags_json).unwrap_or_else(|_| json!([])),
+                "speaker_names": speaker_names_json
+                    .as_deref()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                    .unwrap_or_else(|| json!({})),
             })
             .to_string()
         }))
     }
 }
 
-/// Maps a database row (with id, created_at, meeting_type, title, output_json columns) to a summary JSON object.
+/// Maps a database row (with id, created_at, meeting_type, title, output_json, tags_json columns)
+/// to a summary JSON object used in the meeting list and history view.
 fn row_to_meeting_summary(r: &sqlx::sqlite::SqliteRow) -> serde_json::Value {
     let output_str: String = r.get("output_json");
     let output: serde_json::Value =
         serde_json::from_str(&output_str).unwrap_or_else(|_| json!({}));
     let action_items = output["action_items"].as_array();
     let action_items_count = action_items.map(|a| a.len()).unwrap_or(0);
+    let tags_json: String = r.get("tags_json");
+    let tags: serde_json::Value =
+        serde_json::from_str(&tags_json).unwrap_or_else(|_| json!([]));
     json!({
         "id": r.get::<String, _>("id"),
         "created_at": r.get::<String, _>("created_at"),
@@ -372,6 +528,7 @@ fn row_to_meeting_summary(r: &sqlx::sqlite::SqliteRow) -> serde_json::Value {
         "title": r.get::<String, _>("title"),
         "summary_short": output["summary_short"],
         "action_items_count": action_items_count,
+        "tags": tags,
     })
 }
 

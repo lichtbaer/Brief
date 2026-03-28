@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { isMeeting, type Meeting } from "../types";
 
@@ -10,6 +10,14 @@ export interface MeetingSummary {
   title: string;
   summary_short?: string;
   action_items_count?: number;
+  tags?: string[];
+}
+
+/** Paginated response shape from the `list_meetings` Tauri command. */
+interface ListMeetingsResponse {
+  meetings: MeetingSummary[];
+  has_more: boolean;
+  next_cursor: string | null;
 }
 
 interface HistoryViewProps {
@@ -38,7 +46,8 @@ function SkeletonCards() {
 }
 
 /**
- * Lists past meetings (newest first) with optional FTS search; loads full meeting JSON on card click.
+ * Lists past meetings (newest first) with optional FTS search and tag filtering.
+ * Loads meetings in pages of 20 via cursor-based pagination.
  *
  * @param props.onOpenMeeting — parent handles navigation to detail/output.
  */
@@ -47,15 +56,27 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
   const [meetings, setMeetings] = useState<MeetingSummary[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Track whether we are in search mode or tag-filter mode so pagination resets correctly.
+  const searchActiveRef = useRef(false);
 
   const loadMeetings = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
+    setActiveTagFilter(null);
+    searchActiveRef.current = false;
     try {
-      const result = await invoke<string>("list_meetings");
-      setMeetings(JSON.parse(result) as MeetingSummary[]);
+      const result = await invoke<string>("list_meetings", { before: undefined });
+      const { meetings: page, has_more, next_cursor } = JSON.parse(result) as ListMeetingsResponse;
+      setMeetings(page);
+      setHasMore(has_more);
+      setNextCursor(next_cursor);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -67,13 +88,35 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
     void loadMeetings();
   }, [loadMeetings]);
 
+  /** Appends the next page of results to the existing meeting list. */
+  const loadMore = async () => {
+    if (!hasMore || loadingMore || !nextCursor) return;
+    setLoadingMore(true);
+    try {
+      const result = await invoke<string>("list_meetings", { before: nextCursor });
+      const { meetings: page, has_more, next_cursor } = JSON.parse(result) as ListMeetingsResponse;
+      setMeetings((prev) => [...prev, ...page]);
+      setHasMore(has_more);
+      setNextCursor(next_cursor);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   const handleSearch = async (q: string) => {
     setSearchQuery(q);
+    setActiveTagFilter(null);
     const trimmed = q.trim();
     if (trimmed.length < 2) {
       await loadMeetings();
       return;
     }
+    // Search mode: no pagination (FTS results are bounded).
+    searchActiveRef.current = true;
+    setHasMore(false);
+    setNextCursor(null);
     setLoading(true);
     setLoadError(null);
     try {
@@ -84,6 +127,30 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
     } finally {
       setLoading(false);
     }
+  };
+
+  /** Filters meeting list by a single tag (exact match). */
+  const handleTagFilter = async (tag: string) => {
+    setActiveTagFilter(tag);
+    setSearchQuery("");
+    searchActiveRef.current = false;
+    setHasMore(false);
+    setNextCursor(null);
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const result = await invoke<string>("list_meetings_by_tag", { tag });
+      setMeetings(JSON.parse(result) as MeetingSummary[]);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** Clears any active tag filter and reloads the full paginated list. */
+  const clearTagFilter = () => {
+    void loadMeetings();
   };
 
   // Derive the date locale from the current UI language so dates respect the
@@ -106,6 +173,9 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
     }
   };
 
+  // Collect all unique tags from the currently loaded meetings for the filter chips row.
+  const allTags = [...new Set(meetings.flatMap((m) => m.tags ?? []))];
+
   return (
     <section aria-label={t("nav.history")} style={{ maxWidth: "40rem" }}>
       <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "1rem" }}>
@@ -118,9 +188,68 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
         value={searchQuery}
         onChange={(e) => void handleSearch(e.target.value)}
         className="form-input"
-        style={{ maxWidth: "32rem", marginBottom: "1.25rem" }}
+        style={{ maxWidth: "32rem", marginBottom: "0.75rem" }}
         aria-label={t("history.search_placeholder")}
       />
+
+      {/* Tag filter row — shown when tags exist and no search is active */}
+      {allTags.length > 0 && !searchQuery && (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "0.4rem",
+            marginBottom: "1rem",
+            alignItems: "center",
+          }}
+        >
+          <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginRight: "0.25rem" }}>
+            {t("history.filter_by_tag")}:
+          </span>
+          {allTags.map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => {
+                if (activeTagFilter === tag) {
+                  clearTagFilter();
+                } else {
+                  void handleTagFilter(tag);
+                }
+              }}
+              style={{
+                fontSize: "0.75rem",
+                padding: "0.15rem 0.55rem",
+                borderRadius: "999px",
+                border: "1px solid",
+                cursor: "pointer",
+                background: activeTagFilter === tag ? "var(--color-accent, #3b82f6)" : "transparent",
+                color: activeTagFilter === tag ? "#fff" : "var(--color-text-muted)",
+                borderColor: activeTagFilter === tag ? "var(--color-accent, #3b82f6)" : "var(--color-border, #d1d5db)",
+              }}
+            >
+              {tag}
+            </button>
+          ))}
+          {activeTagFilter && (
+            <button
+              type="button"
+              onClick={clearTagFilter}
+              style={{
+                fontSize: "0.75rem",
+                padding: "0.15rem 0.55rem",
+                borderRadius: "999px",
+                border: "1px solid var(--color-border, #d1d5db)",
+                cursor: "pointer",
+                background: "transparent",
+                color: "var(--color-text-muted)",
+              }}
+            >
+              {t("history.tag_filter_clear")} ×
+            </button>
+          )}
+        </div>
+      )}
 
       {loadError && (
         <div className="alert alert-error" role="alert">
@@ -191,8 +320,45 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
                   {t("history.action_items_count", { count: m.action_items_count })}
                 </span>
               )}
+              {/* Tags chips shown on cards for quick visual overview */}
+              {m.tags && m.tags.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.3rem", marginTop: "0.5rem" }}>
+                  {m.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      style={{
+                        fontSize: "0.7rem",
+                        padding: "0.1rem 0.45rem",
+                        borderRadius: "999px",
+                        border: "1px solid var(--color-border, #d1d5db)",
+                        color: "var(--color-text-muted)",
+                        background: "transparent",
+                      }}
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              )}
             </button>
           ))}
+
+          {/* Load more — only shown when not searching and more pages exist */}
+          {hasMore && !searchQuery && !activeTagFilter && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ marginTop: "0.75rem", alignSelf: "center" }}
+              onClick={() => void loadMore()}
+              disabled={loadingMore}
+            >
+              {loadingMore ? (
+                <><span className="spinner spinner-dark" />{t("history.loading_more")}</>
+              ) : (
+                t("history.load_more")
+              )}
+            </button>
+          )}
         </div>
       )}
     </section>
