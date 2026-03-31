@@ -4,10 +4,15 @@
 Expected argv: ``wav_path`` [, ``language`` [, ``model_size``]]. Progress logs go to stderr so Rust can parse stdout only.
 """
 import json
+import logging
 import os
 import sys
 
 from payload import build_success_payload
+
+# Module-level logger — handlers are configured inside main() so the module
+# can be imported in tests without side effects on the root logging config.
+logger = logging.getLogger(__name__)
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MODELS_DIR = os.path.join(SCRIPT_DIR, "models")
@@ -41,7 +46,16 @@ def _patch_torch_load():
 
 def main() -> None:
     """Load WhisperX on CPU, run transcription + alignment + diarization, emit JSON segments or ``{"error": ...}``."""
+    # Send all log output to stderr so stdout remains a pure JSON channel for Rust.
+    logging.basicConfig(
+        level=logging.DEBUG,
+        stream=sys.stderr,
+        format="%(asctime)s %(levelname)-8s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
     if len(sys.argv) < 2:
+        logger.error("No WAV path provided as argument")
         print(json.dumps({"error": "No WAV path provided"}))
         sys.exit(1)
 
@@ -49,13 +63,16 @@ def main() -> None:
     language: str = sys.argv[2] if len(sys.argv) > 2 else "de"
     model_size: str = sys.argv[3] if len(sys.argv) > 3 else "base"
 
+    logger.info("Starting transcription: wav=%s language=%s model=%s", wav_path, language, model_size)
+
     if not os.path.isfile(wav_path):
+        logger.error("File not found: %s", wav_path)
         print(json.dumps({"error": f"File not found: {wav_path}"}))
         sys.exit(1)
 
     def progress(msg: str) -> None:
-        """Write a human-readable status line to stderr (does not pollute JSON stdout)."""
-        print(msg, file=sys.stderr, flush=True)
+        """Write a human-readable status line to stderr via the logger (does not pollute JSON stdout)."""
+        logger.info(msg)
 
     try:
         _patch_torch_load()
@@ -65,6 +82,7 @@ def main() -> None:
         from whisperx.diarize import DiarizationPipeline
 
         whisper_model_dir = os.path.join(MODELS_DIR, "faster-whisper-base")
+        logger.debug("Using whisper model directory: %s", whisper_model_dir)
 
         progress("Loading WhisperX model…")
         model = whisperx.load_model(
@@ -80,6 +98,7 @@ def main() -> None:
         audio = whisperx.load_audio(wav_path)
         progress("Transcribing…")
         result = model.transcribe(audio, language=language)
+        logger.debug("Transcription yielded %d raw segments", len(result.get("segments", [])))
 
         progress("Aligning words…")
         model_a, metadata = whisperx.load_align_model(language_code=language, device="cpu")
@@ -92,9 +111,11 @@ def main() -> None:
         progress("Done.")
 
         output = build_success_payload(result["segments"], language)
+        logger.info("Transcription complete: %d segments, language=%s", len(output["segments"]), language)
         print(json.dumps(output, ensure_ascii=False))
 
     except Exception as e:
+        logger.exception("Transcription failed: %s", e)
         print(json.dumps({"error": str(e)}))
         sys.exit(1)
 

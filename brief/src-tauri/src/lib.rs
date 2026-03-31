@@ -58,6 +58,11 @@ pub(crate) fn resolve_orphan_wav_path(user_path: &Path) -> Result<PathBuf, Strin
 /// Builds the Tauri app with plugins, initializes encrypted storage and recommended LLM defaults, and registers invoke handlers.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Initialize logging backend. The RUST_LOG env var controls verbosity at runtime;
+    // the default filter is "info" so release builds are not flooded with debug output.
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    log::info!("Brief starting up");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -74,6 +79,7 @@ pub fn run() {
             let key = crypto_key::get_or_create_encryption_key(&app_data)?;
 
             let storage = tauri::async_runtime::block_on(async {
+                log::debug!("Opening database at {}", db_path.display());
                 let storage = Storage::new(
                     db_path
                         .to_str()
@@ -81,6 +87,7 @@ pub fn run() {
                     &key,
                 )
                 .await?;
+                log::info!("Database initialized");
                 let ram_gb = memory::get_available_memory_gb();
                 let recommended = memory::recommended_llm_model(ram_gb);
                 storage
@@ -89,7 +96,7 @@ pub fn run() {
                 // Enforce audio retention on startup: delete expired WAV files silently.
                 // A failure here is non-fatal — log and continue.
                 if let Err(e) = storage.purge_expired_audio().await {
-                    eprintln!("purge_expired_audio on startup failed: {}", e);
+                    log::warn!("purge_expired_audio on startup failed: {}", e);
                 }
                 Ok::<_, String>(storage)
             })?;

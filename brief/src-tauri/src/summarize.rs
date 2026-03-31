@@ -102,6 +102,10 @@ impl Summarizer {
         system_prompt: &str,
         meeting_type: &str,
     ) -> Result<MeetingOutput, String> {
+        log::info!(
+            "Requesting summary from Ollama: model={} type={} transcript_len={}",
+            self.model, meeting_type, transcript.len()
+        );
         let mut last_err = String::new();
 
         for attempt in 0..=self.max_retries {
@@ -112,15 +116,23 @@ impl Summarizer {
                 let capped_ms = base_ms.min(MAX_BACKOFF_MS);
                 let jitter_ms: u64 = rand::thread_rng().gen_range(0..=(capped_ms / 5));
                 let delay_ms = capped_ms + jitter_ms;
+                log::warn!(
+                    "Ollama summarize attempt {}/{} failed ({}), retrying in {}ms",
+                    attempt, self.max_retries, last_err, delay_ms
+                );
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
             }
 
             match self.attempt_summarize(transcript, system_prompt, meeting_type).await {
-                Ok(output) => return Ok(output),
+                Ok(output) => {
+                    log::info!("Summarization succeeded on attempt {}", attempt + 1);
+                    return Ok(output);
+                }
                 Err(e) => {
                     // Do not retry JSON parse errors: the model returned bad JSON and retrying
                     // is unlikely to produce valid output from the same prompt.
                     if is_parse_error(&e) || attempt == self.max_retries {
+                        log::error!("Summarization failed: {}", e);
                         return Err(e);
                     }
                     last_err = e;
@@ -171,6 +183,7 @@ impl Summarizer {
             .await
             .map_err(|_| "Ollama not reachable — is `ollama serve` running?".to_string())?;
 
+        log::debug!("Ollama response status: {}", response.status());
         if !response.status().is_success() {
             return Err(format!("Ollama error: HTTP {}", response.status()));
         }
@@ -241,7 +254,7 @@ fn parse_meeting_output(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_meeting_output;
+    use super::{is_parse_error, parse_meeting_output};
 
     #[test]
     fn parse_strips_json_fence() {
@@ -401,7 +414,7 @@ mod tests {
 
     #[test]
     fn with_retry_config_overrides_defaults() {
-        let s = super::Summarizer::new(None, None)
+        let s = super::Summarizer::new(None, None, None)
             .unwrap()
             .with_retry_config(5, 500);
         assert_eq!(s.max_retries, 5);
