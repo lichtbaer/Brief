@@ -67,13 +67,17 @@ interface OutputViewProps {
  */
 export function OutputView({ meeting, onBack, onMeetingUpdated }: OutputViewProps) {
   const { t } = useTranslation();
-  const { exportBusy, exportError, exportSuccess, exportMarkdown, exportPdf, exportAudio } = useExport();
+  const { exportBusy, exportError, exportSuccess, exportMarkdown, exportPdf, exportAudio, exportCsv } = useExport();
   const [copied, setCopied] = useState(false);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
   // Shown when speaker name persistence fails — cosmetic, but user should know the save failed.
   const [speakerSaveError, setSpeakerSaveError] = useState(false);
+
+  // Follow-up email draft editing state.
+  const [followUpEditText, setFollowUpEditText] = useState<string | null>(null);
+  const [followUpSaveError, setFollowUpSaveError] = useState(false);
 
   // Title editing state — local copy so edits are reflected immediately before persistence.
   const [title, setTitle] = useState(meeting.title);
@@ -177,9 +181,23 @@ export function OutputView({ meeting, onBack, onMeetingUpdated }: OutputViewProp
   };
 
   const copyEmail = () => {
-    void navigator.clipboard.writeText(followUpText);
+    // Copy the edited text if editing, otherwise the persisted text.
+    void navigator.clipboard.writeText(followUpEditText ?? followUpText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  /** Persists the edited follow-up draft to the backend. */
+  const saveFollowUpDraft = async () => {
+    if (followUpEditText === null) return;
+    try {
+      await invoke("update_follow_up_draft", { id: meeting.id, text: followUpEditText });
+      setFollowUpEditText(null);
+      setFollowUpSaveError(false);
+    } catch {
+      setFollowUpSaveError(true);
+      setTimeout(() => setFollowUpSaveError(false), 5000);
+    }
   };
 
   // Maximum tag length and count limits — kept in sync with backend validation in storage.rs.
@@ -325,6 +343,20 @@ export function OutputView({ meeting, onBack, onMeetingUpdated }: OutputViewProp
               )}
             </button>
           ) : null}
+          {meeting.output.action_items.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              disabled={exportBusy !== null}
+              onClick={() => { void exportCsv(meeting.id); }}
+            >
+              {exportBusy === "csv" ? (
+                <><span className="spinner spinner-dark" />{t("output.exporting")}</>
+              ) : (
+                t("output.export_csv")
+              )}
+            </button>
+          )}
           <button
             type="button"
             className="btn btn-ghost btn-icon"
@@ -513,23 +545,76 @@ export function OutputView({ meeting, onBack, onMeetingUpdated }: OutputViewProp
         <section className="output-section">
           <h2>{t("output.follow_up_draft")}</h2>
           <div style={{ marginTop: "0.5rem" }}>
-            {followUp.subject && (
+            {followUp.subject && followUpEditText === null && (
               <p style={{ marginBottom: "0.5rem" }}>
                 <strong>{t("output.subject")}:</strong> {followUp.subject}
               </p>
             )}
-            <pre className="email-body" style={{ fontFamily: "inherit" }}>
-              {followUpText}
-            </pre>
+            {/* Editable textarea — shown while editing; read-only pre shown otherwise */}
+            {followUpEditText !== null ? (
+              <textarea
+                className="form-input"
+                value={followUpEditText}
+                onChange={(e) => setFollowUpEditText(e.target.value)}
+                style={{ width: "100%", minHeight: "12rem", fontFamily: "inherit", fontSize: "0.9rem", whiteSpace: "pre-wrap", resize: "vertical" }}
+                aria-label={t("output.follow_up_draft")}
+              />
+            ) : (
+              <pre className="email-body" style={{ fontFamily: "inherit" }}>
+                {followUpText}
+              </pre>
+            )}
           </div>
-          <button
-            type="button"
-            className="btn btn-ghost btn-icon"
-            style={{ marginTop: "0.75rem" }}
-            onClick={copyEmail}
-          >
-            {copied ? t("output.copied") : t("output.copy_email")}
-          </button>
+          {followUpSaveError && (
+            <div className="alert alert-error" role="alert" style={{ marginTop: "0.5rem", fontSize: "0.85rem" }}>
+              <span>⚠</span>
+              <span>{t("output.follow_up_save_error")}</span>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem", flexWrap: "wrap" }}>
+            {followUpEditText === null ? (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-icon"
+                  onClick={() => setFollowUpEditText(followUpText)}
+                >
+                  {t("output.follow_up_edit")}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-icon"
+                  onClick={copyEmail}
+                >
+                  {copied ? t("output.copied") : t("output.copy_email")}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-icon"
+                  onClick={() => void saveFollowUpDraft()}
+                >
+                  {t("output.follow_up_save")}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-icon"
+                  onClick={() => { setFollowUpEditText(null); setFollowUpSaveError(false); }}
+                >
+                  {t("output.follow_up_cancel")}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-icon"
+                  onClick={copyEmail}
+                >
+                  {copied ? t("output.copied") : t("output.copy_email")}
+                </button>
+              </>
+            )}
+          </div>
         </section>
       )}
 
@@ -586,11 +671,33 @@ export function OutputView({ meeting, onBack, onMeetingUpdated }: OutputViewProp
           <summary style={{ cursor: "pointer", userSelect: "none", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--color-text-subtle)", fontWeight: 600 }}>
             {t("output.transcript")}
           </summary>
-          {/* Apply speaker name substitutions at render time only.
-              The stored transcript preserves original labels for FTS indexing. */}
-          <pre className="transcript" style={{ marginTop: "0.5rem", fontFamily: "inherit" }}>
-            {applyNames(meeting.transcript, speakerNames)}
-          </pre>
+          {/* When diarized segments are available, render them with timestamps for navigation.
+              Fall back to the plain transcript for older meetings without segment data. */}
+          {meeting.segments && meeting.segments.length > 0 ? (
+            <div style={{ marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+              {meeting.segments.map((seg, i) => {
+                const displaySpeaker = speakerNames[seg.speaker] || seg.speaker;
+                const startSec = Math.floor(seg.start);
+                const mins = String(Math.floor(startSec / 60)).padStart(2, "0");
+                const secs = String(startSec % 60).padStart(2, "0");
+                return (
+                  <div key={i} style={{ display: "flex", gap: "0.75rem", alignItems: "flex-start", fontSize: "0.875rem", lineHeight: 1.5 }}>
+                    <span style={{ fontFamily: "monospace", color: "var(--color-text-subtle)", minWidth: "3.5rem", flexShrink: 0, paddingTop: "0.05rem" }}>
+                      {mins}:{secs}
+                    </span>
+                    <span style={{ fontFamily: "monospace", color: "var(--color-text-muted)", minWidth: "6.5rem", flexShrink: 0, paddingTop: "0.05rem" }}>
+                      {displaySpeaker}
+                    </span>
+                    <span style={{ flex: 1 }}>{seg.text}</span>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <pre className="transcript" style={{ marginTop: "0.5rem", fontFamily: "inherit" }}>
+              {applyNames(meeting.transcript, speakerNames)}
+            </pre>
+          )}
         </details>
       </section>
 

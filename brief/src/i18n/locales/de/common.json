@@ -48,6 +48,7 @@
     "btn_start": "Aufnahme starten",
     "btn_stop": "Stoppen & Verarbeiten",
     "btn_restart": "Neu starten",
+    "shortcut_hint": "Tipp: Leertaste zum Starten/Stoppen",
     "meeting_type_label": "Meeting-Typ",
     "step_transcribing": "Transkribiere Audio…",
     "step_summarizing": "Erstelle Zusammenfassung…",
@@ -116,7 +117,12 @@
     "delete_error": "Meeting konnte nicht gelöscht werden.",
     "regenerate_summary": "Zusammenfassung neu erstellen",
     "regenerating": "Erstelle neu…",
-    "regenerate_error": "Zusammenfassung konnte nicht neu erstellt werden."
+    "regenerate_error": "Zusammenfassung konnte nicht neu erstellt werden.",
+    "export_csv": "Action Items als CSV",
+    "follow_up_edit": "Bearbeiten",
+    "follow_up_save": "Speichern",
+    "follow_up_cancel": "Abbrechen",
+    "follow_up_save_error": "Entwurf konnte nicht gespeichert werden — bitte erneut versuchen."
   },
   "settings": {
     "title": "Einstellungen",
@@ -143,7 +149,18 @@
     "ollama_timeout_hint": "Standard 300 (5 Minuten). Bei langen Meetings oder langsamer Hardware erhöhen (30–3600).",
     "audio_device": "Mikrofon / Aufnahmegerät",
     "audio_device_default": "System-Standard",
-    "audio_device_hint": "Wähle das Eingabegerät für Aufnahmen. Änderungen gelten ab der nächsten Aufnahme."
+    "audio_device_hint": "Wähle das Eingabegerät für Aufnahmen. Änderungen gelten ab der nächsten Aufnahme.",
+    "custom_prompt_label": "Benutzerdefinierter Prompt (Meeting-Typ: Custom)",
+    "custom_prompt_placeholder": "Systemanweisung für den LLM bei Custom-Meetings…",
+    "custom_prompt_hint": "Wird verwendet wenn der Meeting-Typ auf 'Benutzerdefiniert' gesetzt ist. Leer lassen für den Standard-Consulting-Prompt. Mindestens 20 Zeichen."
+  },
+  "stats": {
+    "title": "Statistiken",
+    "total_meetings": "Meetings",
+    "total_duration": "Gesamtdauer",
+    "total_action_items": "Action Items",
+    "by_type": "Nach Typ",
+    "weekly_trend": "12-Wochen-Trend"
   },
   "onboarding": {
     "loading_app": "Lade…",

@@ -146,9 +146,17 @@ pub async fn process_meeting_inner(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let (ollama_url, llm_model, ollama_timeout_secs) = {
+    // Read Ollama config and optional custom prompt template in a single storage lock.
+    let (ollama_url, llm_model, ollama_timeout_secs, custom_template) = {
         let storage = state.storage.lock().await;
-        storage.get_summarizer_config().await?
+        let (url, model, timeout) = storage.get_summarizer_config().await?;
+        // Only read the custom template when meeting_type is "custom" — avoids unnecessary DB query.
+        let custom = if meeting_type == "custom" {
+            storage.get_setting("custom_prompt_template").await.ok().flatten()
+        } else {
+            None
+        };
+        (url, model, timeout, custom)
     };
 
     // Retry up to 3 times with 2 s / 4 s / 8 s backoff on transient network failures.
@@ -157,7 +165,10 @@ pub async fn process_meeting_inner(
         crate::summarize::Summarizer::new(Some(ollama_url), Some(llm_model), Some(ollama_timeout_secs))?
             .with_retry_config(3, 2000);
     let output = if summarizer.check_available().await {
-        let system_prompt = crate::templates::get_system_prompt(&meeting_type);
+        let system_prompt = crate::templates::get_system_prompt_with_custom(
+            &meeting_type,
+            custom_template.as_deref(),
+        );
         summarizer
             .summarize(&transcript, &system_prompt, &meeting_type)
             .await
@@ -199,6 +210,9 @@ pub async fn process_meeting_inner(
         output,
         audio_path: None,
         tags: vec![],
+        // Persist diarized segments so the frontend can render a timestamped transcript.
+        segments: result.segments.clone(),
+        speaker_names: std::collections::HashMap::new(),
     };
 
     if retain {
@@ -326,9 +340,15 @@ pub async fn regenerate_summary(
     let meeting: crate::types::Meeting =
         serde_json::from_str(&meeting_json).map_err(|e| e.to_string())?;
 
-    let (ollama_url, llm_model, ollama_timeout_secs) = {
+    let (ollama_url, llm_model, ollama_timeout_secs, custom_template) = {
         let storage = state.storage.lock().await;
-        storage.get_summarizer_config().await?
+        let (url, model, timeout) = storage.get_summarizer_config().await?;
+        let custom = if meeting_type == "custom" {
+            storage.get_setting("custom_prompt_template").await.ok().flatten()
+        } else {
+            None
+        };
+        (url, model, timeout, custom)
     };
 
     let summarizer =
@@ -339,7 +359,10 @@ pub async fn regenerate_summary(
         return Err("Ollama not reachable — is `ollama serve` running?".to_string());
     }
 
-    let system_prompt = crate::templates::get_system_prompt(&meeting_type);
+    let system_prompt = crate::templates::get_system_prompt_with_custom(
+        &meeting_type,
+        custom_template.as_deref(),
+    );
     let new_output = summarizer
         .summarize(&meeting.transcript, &system_prompt, &meeting_type)
         .await
@@ -350,7 +373,7 @@ pub async fn regenerate_summary(
         storage.update_meeting_output(&id, &new_output).await?;
     }
 
-    // Return the refreshed meeting with the new output for the frontend to display.
+    // Return the refreshed meeting (segments preserved from the original load).
     let updated_meeting = crate::types::Meeting {
         output: new_output,
         meeting_type: meeting_type.clone(),

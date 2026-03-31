@@ -44,6 +44,14 @@ pub struct Meeting {
     pub output: MeetingOutput,
     pub audio_path: Option<String>,
     pub tags: Vec<String>,
+    /// Diarized segments from WhisperX (speaker, start, end, text).
+    /// Stored in a separate DB column; `default` ensures backward compat with older records.
+    #[serde(default)]
+    pub segments: Vec<crate::transcribe::DiarizedSegment>,
+    /// Speaker label → display name mapping (e.g. "SPEAKER_00" → "Alice").
+    /// Applied at display time only; stored in DB, absent for older records.
+    #[serde(default)]
+    pub speaker_names: std::collections::HashMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

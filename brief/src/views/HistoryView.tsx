@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { MouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { StatsPanel } from "../components/StatsPanel";
 import { isMeeting, type Meeting } from "../types";
 
 export interface MeetingSummary {
@@ -263,6 +264,9 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
       <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "1rem" }}>
         {t("history.title")}
       </h1>
+
+      {/* Statistics dashboard — collapsed by default, expands on click */}
+      <StatsPanel />
 
       <input
         type="search"

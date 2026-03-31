@@ -14,6 +14,18 @@ pub fn get_system_prompt(meeting_type: &str) -> String {
     }
 }
 
+/// Returns the system prompt, preferring a user-defined custom template when `meeting_type` is
+/// "custom" and `custom_prompt` is non-empty. Falls back to the built-in consulting template
+/// for all other types or when no custom prompt has been configured.
+pub fn get_system_prompt_with_custom(meeting_type: &str, custom_prompt: Option<&str>) -> String {
+    if meeting_type == "custom" {
+        if let Some(prompt) = custom_prompt.filter(|p| !p.trim().is_empty()) {
+            return prompt.to_string();
+        }
+    }
+    get_system_prompt(meeting_type)
+}
+
 /// Template for consulting / advisory meetings.
 /// Focus: topics discussed, decisions made, action items with owners, professional follow-up.
 const CONSULTING_TEMPLATE: &str = r#"

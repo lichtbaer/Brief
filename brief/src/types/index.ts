@@ -19,6 +19,8 @@ export interface PersistedSettings {
   ollama_timeout_secs?: string;
   /** Name of the preferred CPAL input device; "default" uses the system default. */
   audio_device?: string;
+  /** User-defined system prompt used when meeting_type is "custom". Empty string = use default. */
+  custom_prompt_template?: string;
 }
 
 /** Mirrors `defaults::SettingDefaults` — canonical defaults from Rust, fetched once at startup. */
@@ -108,6 +110,9 @@ export interface Meeting {
   /** Speaker label → display name mapping (e.g. { "SPEAKER_00": "Alice" }).
    *  Applied at display time only — the stored transcript preserves original labels for FTS. */
   speaker_names?: Record<string, string>;
+  /** Diarized segments with timestamps, persisted from WhisperX output.
+   *  Absent for meetings recorded before this feature was added. */
+  segments?: DiarizedSegment[];
 }
 
 /** One diarized utterance; mirrors `transcribe::DiarizedSegment` in the Tauri backend. */

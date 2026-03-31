@@ -31,6 +31,7 @@ export function mergeSettings(raw: Record<string, string>, defaults?: SettingDef
     whisperx_timeout_secs: raw.whisperx_timeout_secs ?? d.whisperx_timeout_secs,
     ollama_timeout_secs: raw.ollama_timeout_secs ?? d.ollama_timeout_secs,
     audio_device: raw.audio_device ?? "default",
+    custom_prompt_template: raw.custom_prompt_template ?? "",
   };
 }
 
@@ -190,6 +191,24 @@ export function SettingsView() {
           />
           <small style={{ display: "block", marginTop: "0.35rem", color: "var(--color-text-muted)", fontSize: "0.8rem" }}>
             {t("settings.ollama_timeout_hint")}
+          </small>
+        </div>
+
+        {/* Custom prompt template — shown when the default meeting type is "custom" */}
+        <div className="form-group">
+          <label className="form-label" htmlFor="custom-prompt-template">
+            {t("settings.custom_prompt_label")}
+          </label>
+          <textarea
+            id="custom-prompt-template"
+            className="form-input"
+            value={settings.custom_prompt_template ?? ""}
+            placeholder={t("settings.custom_prompt_placeholder")}
+            onChange={(e) => void updateSetting("custom_prompt_template", e.target.value)}
+            style={{ width: "100%", minHeight: "10rem", resize: "vertical", fontSize: "0.85rem", fontFamily: "monospace" }}
+          />
+          <small style={{ display: "block", marginTop: "0.35rem", color: "var(--color-text-muted)", fontSize: "0.8rem" }}>
+            {t("settings.custom_prompt_hint")}
           </small>
         </div>
       </section>

@@ -97,6 +97,70 @@ pub async fn export_audio(
         .ok_or_else(|| AppError::InvalidAudioPath.into())
 }
 
+/// Exports the meeting's action items as a CSV file (RFC 4180) via system save dialog.
+/// Columns: description, owner, due_date, priority.
+#[tauri::command]
+pub async fn export_action_items_csv(
+    id: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let meeting = {
+        let storage = state.storage.lock().await;
+        fetch_meeting_value(&storage, &id).await?
+    };
+
+    let action_items = meeting["output"]["action_items"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+
+    // Build RFC 4180 CSV: header row + one row per action item.
+    let mut csv = String::from("description,owner,due_date,priority\n");
+    for item in &action_items {
+        let description = csv_escape(item["description"].as_str().unwrap_or(""));
+        let owner = csv_escape(item["owner"].as_str().unwrap_or(""));
+        let due_date = csv_escape(item["due_date"].as_str().unwrap_or(""));
+        let priority = csv_escape(item["priority"].as_str().unwrap_or(""));
+        csv.push_str(&format!("{},{},{},{}\n", description, owner, due_date, priority));
+    }
+
+    let title = meeting["title"].as_str().unwrap_or("meeting").to_string();
+    let default_name = format!("{}_actions.csv", safe_export_stem(title));
+
+    let Some(dest_fp) = app
+        .dialog()
+        .file()
+        .add_filter("CSV", &["csv"])
+        .set_file_name(&default_name)
+        .blocking_save_file()
+    else {
+        return Err(AppError::Cancelled.into());
+    };
+
+    let dest_pb = dest_fp
+        .into_path()
+        .map_err(|e| AppError::IoError(e.to_string()))?;
+
+    std::fs::write(&dest_pb, csv.as_bytes())
+        .map_err(|e| AppError::IoError(format!("Failed to write CSV: {e}")))?;
+
+    dest_pb
+        .to_str()
+        .map(std::string::ToString::to_string)
+        .ok_or_else(|| AppError::InvalidAudioPath.into())
+}
+
+/// Escapes a CSV field value per RFC 4180: wraps in double quotes if it contains
+/// commas, double quotes, or newlines; escapes embedded double quotes by doubling them.
+fn csv_escape(value: &str) -> String {
+    if value.contains(',') || value.contains('"') || value.contains('\n') || value.contains('\r') {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
 /// Sanitizes a meeting title for use as a file name stem (replaces unsafe characters, truncates to 80 chars).
 pub fn safe_export_stem(title: String) -> String {
     let trimmed: String = title
