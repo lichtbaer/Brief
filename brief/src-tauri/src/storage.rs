@@ -153,6 +153,16 @@ impl Storage {
             .map_err(|e| format!("Migration failed (speaker_names_json): {}", e))?;
         }
 
+        // Migration: add segments_json column for diarized segment persistence (speaker + timestamps).
+        if !cols.contains(&"segments_json".to_string()) {
+            sqlx::query(
+                "ALTER TABLE meetings ADD COLUMN segments_json TEXT DEFAULT '[]'",
+            )
+            .execute(&self.pool)
+            .await
+            .map_err(|e| format!("Migration failed (segments_json): {}", e))?;
+        }
+
         // Upgrades: users who already have meetings should not see first-run onboarding.
         let meeting_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM meetings")
             .fetch_one(&self.pool)
@@ -261,6 +271,7 @@ impl Storage {
     pub async fn save_meeting(&self, meeting: &Meeting) -> Result<(), String> {
         let output_json = serde_json::to_string(&meeting.output).map_err(|e| e.to_string())?;
         let tags_json = serde_json::to_string(&meeting.tags).map_err(|e| e.to_string())?;
+        let segments_json = serde_json::to_string(&meeting.segments).map_err(|e| e.to_string())?;
 
         let mut conn = self
             .pool
@@ -274,8 +285,8 @@ impl Storage {
 
         sqlx::query(
             "INSERT INTO meetings (id, created_at, ended_at, duration_seconds, meeting_type,
-             title, transcript, output_json, audio_path, tags_json)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             title, transcript, output_json, audio_path, tags_json, segments_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&meeting.id)
         .bind(&meeting.created_at)
@@ -287,6 +298,7 @@ impl Storage {
         .bind(&output_json)
         .bind(&meeting.audio_path)
         .bind(&tags_json)
+        .bind(&segments_json)
         .execute(&mut *tx)
         .await
         .map_err(|e| format!("Failed to save meeting: {}", e))?;
@@ -604,10 +616,11 @@ impl Storage {
 
     /// Loads one non-deleted meeting as a JSON string for the frontend, or `None` if absent.
     /// Includes `speaker_names` (a map of speaker label → display name) for display-layer substitution.
+    /// Includes `segments` (diarized utterances with timestamps) for transcript navigation.
     pub async fn get_meeting(&self, id: &str) -> Result<Option<String>, String> {
         let row = sqlx::query(
             "SELECT id, created_at, ended_at, duration_seconds, meeting_type,
-             title, transcript, output_json, audio_path, tags_json, speaker_names_json
+             title, transcript, output_json, audio_path, tags_json, speaker_names_json, segments_json
              FROM meetings WHERE id = ? AND deleted_at IS NULL",
         )
         .bind(id)
@@ -620,6 +633,8 @@ impl Storage {
             let tags_json: String = r.get("tags_json");
             // speaker_names_json may be NULL for rows created before the migration.
             let speaker_names_json: Option<String> = r.get("speaker_names_json");
+            // segments_json may be NULL for rows created before the migration.
+            let segments_json: Option<String> = r.get("segments_json");
             json!({
                 "id": r.get::<String, _>("id"),
                 "created_at": r.get::<String, _>("created_at"),
@@ -635,9 +650,185 @@ impl Storage {
                     .as_deref()
                     .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
                     .unwrap_or_else(|| json!({})),
+                "segments": segments_json
+                    .as_deref()
+                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                    .unwrap_or_else(|| json!([])),
             })
             .to_string()
         }))
+    }
+
+    /// Removes audio files whose retention period has expired and clears `audio_path` in the DB.
+    /// Only acts when `retain_audio` is enabled; returns the number of purged entries.
+    pub async fn purge_expired_audio(&self) -> Result<u32, String> {
+        let retain_audio = self
+            .get_setting("retain_audio")
+            .await?
+            .unwrap_or_else(|| "false".to_string());
+
+        // When retain_audio is disabled, audio is deleted immediately after processing — nothing to purge.
+        if retain_audio != "true" {
+            return Ok(0);
+        }
+
+        let retention_days: i64 = self
+            .get_setting("retention_days")
+            .await?
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(365);
+
+        // Find all non-deleted meetings with stored audio whose age exceeds the retention period.
+        let rows = sqlx::query(
+            "SELECT id, audio_path FROM meetings
+             WHERE audio_path IS NOT NULL
+               AND deleted_at IS NULL
+               AND CAST(julianday('now') - julianday(created_at) AS INTEGER) > ?",
+        )
+        .bind(retention_days)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("purge_expired_audio query failed: {}", e))?;
+
+        let mut purged: u32 = 0;
+        for row in &rows {
+            let id: String = row.get("id");
+            let audio_path: String = row.get("audio_path");
+
+            // Delete the file; "not found" is tolerated (may have been manually removed).
+            if let Err(e) = std::fs::remove_file(&audio_path) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    eprintln!("purge_expired_audio: could not delete {}: {}", audio_path, e);
+                }
+            }
+
+            // Clear DB reference so the meeting no longer references a deleted file.
+            sqlx::query("UPDATE meetings SET audio_path = NULL WHERE id = ?")
+                .bind(&id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("purge_expired_audio update failed: {}", e))?;
+
+            purged += 1;
+        }
+
+        Ok(purged)
+    }
+
+    /// Patches the `follow_up_draft.full_text` field inside the stored `output_json` blob.
+    /// Deserializes the current output, replaces only `full_text`, and re-serializes to preserve all other fields.
+    pub async fn update_follow_up_draft_text(&self, id: &str, text: &str) -> Result<(), String> {
+        let row = sqlx::query(
+            "SELECT output_json FROM meetings WHERE id = ? AND deleted_at IS NULL",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| format!("Failed to fetch meeting for draft update: {}", e))?
+        .ok_or_else(|| crate::error::AppError::MeetingNotFound(id.to_string()).to_string())?;
+
+        let output_json: String = row.get("output_json");
+        let mut output: serde_json::Value =
+            serde_json::from_str(&output_json).map_err(|e| e.to_string())?;
+
+        // Create the follow_up_draft object if the LLM returned an empty/null value.
+        if !output["follow_up_draft"].is_object() {
+            output["follow_up_draft"] = json!({});
+        }
+        output["follow_up_draft"]["full_text"] = serde_json::Value::String(text.to_string());
+
+        let new_json = serde_json::to_string(&output).map_err(|e| e.to_string())?;
+        let affected =
+            sqlx::query("UPDATE meetings SET output_json = ? WHERE id = ? AND deleted_at IS NULL")
+                .bind(&new_json)
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("update_follow_up_draft_text failed: {}", e))?
+                .rows_affected();
+
+        if affected == 0 {
+            return Err(crate::error::AppError::MeetingNotFound(id.to_string()).to_string());
+        }
+        Ok(())
+    }
+
+    /// Aggregates meeting statistics for the dashboard: total counts, duration, type breakdown,
+    /// total action items, and weekly meeting counts (last 12 weeks).
+    pub async fn get_meeting_stats(&self) -> Result<String, String> {
+        // Total meetings and cumulative duration.
+        let totals_row = sqlx::query(
+            "SELECT COUNT(*) as total, COALESCE(SUM(duration_seconds), 0) as total_seconds
+             FROM meetings WHERE deleted_at IS NULL",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("get_meeting_stats totals failed: {}", e))?;
+
+        let total_meetings: i64 = totals_row.get("total");
+        let total_seconds: i64 = totals_row.get("total_seconds");
+
+        // Breakdown by meeting type — used for the type distribution bar.
+        let type_rows = sqlx::query(
+            "SELECT meeting_type, COUNT(*) as count
+             FROM meetings WHERE deleted_at IS NULL
+             GROUP BY meeting_type ORDER BY count DESC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("get_meeting_stats by_type failed: {}", e))?;
+
+        let by_type: Vec<serde_json::Value> = type_rows
+            .iter()
+            .map(|r| {
+                json!({
+                    "type": r.get::<String, _>("meeting_type"),
+                    "count": r.get::<i64, _>("count"),
+                })
+            })
+            .collect();
+
+        // Total action items via SQLite JSON function across all non-deleted meetings.
+        let action_items_row = sqlx::query(
+            "SELECT COALESCE(SUM(json_array_length(output_json, '$.action_items')), 0) as total
+             FROM meetings WHERE deleted_at IS NULL",
+        )
+        .fetch_one(&self.pool)
+        .await
+        .map_err(|e| format!("get_meeting_stats action_items failed: {}", e))?;
+
+        let total_action_items: i64 = action_items_row.get("total");
+
+        // Weekly meeting counts for the last 12 weeks (sparkline data).
+        let weekly_rows = sqlx::query(
+            "SELECT strftime('%Y-W%W', created_at) as week, COUNT(*) as count
+             FROM meetings
+             WHERE deleted_at IS NULL
+               AND created_at >= datetime('now', '-12 weeks')
+             GROUP BY week ORDER BY week",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("get_meeting_stats weekly failed: {}", e))?;
+
+        let weekly: Vec<serde_json::Value> = weekly_rows
+            .iter()
+            .map(|r| {
+                json!({
+                    "week": r.get::<String, _>("week"),
+                    "count": r.get::<i64, _>("count"),
+                })
+            })
+            .collect();
+
+        serde_json::to_string(&json!({
+            "total_meetings": total_meetings,
+            "total_seconds": total_seconds,
+            "by_type": by_type,
+            "total_action_items": total_action_items,
+            "weekly": weekly,
+        }))
+        .map_err(|e| e.to_string())
     }
 }
 
@@ -744,6 +935,8 @@ pub fn meeting_from_transcription(
         output,
         audio_path,
         tags: vec![],
+        segments: segments.to_vec(),
+        speaker_names: std::collections::HashMap::new(),
     }
 }
 

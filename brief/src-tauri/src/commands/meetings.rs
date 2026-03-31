@@ -128,6 +128,39 @@ pub async fn list_meetings_by_tag(
     storage.list_meetings_by_tag(&tag).await
 }
 
+/// Removes audio files whose configured retention period has expired.
+/// Intended to run on app startup and can be invoked on demand.
+/// Returns the number of audio files purged.
+#[tauri::command]
+pub async fn enforce_audio_retention(
+    state: tauri::State<'_, AppState>,
+) -> Result<u32, String> {
+    let storage = state.storage.lock().await;
+    storage.purge_expired_audio().await
+}
+
+/// Persists a user-edited follow-up email draft text for an existing meeting.
+/// Only `full_text` is patched inside `output_json` — all other output fields remain unchanged.
+#[tauri::command]
+pub async fn update_follow_up_draft(
+    id: String,
+    text: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let storage = state.storage.lock().await;
+    storage.update_follow_up_draft_text(&id, &text).await
+}
+
+/// Returns aggregated meeting statistics: total count, total duration, type breakdown,
+/// action item count, and weekly meeting counts (last 12 weeks).
+#[tauri::command]
+pub async fn get_meeting_stats(
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let storage = state.storage.lock().await;
+    storage.get_meeting_stats().await
+}
+
 /// Persists the speaker label → display name mapping for a meeting.
 /// The transcript text is not modified — names are applied at the display layer only,
 /// so FTS search continues to match original speaker labels.

@@ -48,6 +48,7 @@
     "btn_start": "Start Recording",
     "btn_stop": "Stop & Process",
     "btn_restart": "Start Over",
+    "shortcut_hint": "Tip: press Space to start/stop",
     "meeting_type_label": "Meeting type",
     "step_transcribing": "Transcribing audio…",
     "step_summarizing": "Generating summary…",
@@ -116,7 +117,12 @@
     "delete_error": "Could not delete meeting.",
     "regenerate_summary": "Regenerate summary",
     "regenerating": "Regenerating…",
-    "regenerate_error": "Could not regenerate summary."
+    "regenerate_error": "Could not regenerate summary.",
+    "export_csv": "Action items as CSV",
+    "follow_up_edit": "Edit",
+    "follow_up_save": "Save",
+    "follow_up_cancel": "Cancel",
+    "follow_up_save_error": "Could not save draft — please try again."
   },
   "settings": {
     "title": "Settings",
@@ -143,7 +149,18 @@
     "ollama_timeout_hint": "Default 300 (5 minutes). Increase for long meetings or slow hardware (30–3600).",
     "audio_device": "Microphone / recording device",
     "audio_device_default": "System default",
-    "audio_device_hint": "Choose the input device for recordings. Changes take effect on the next recording."
+    "audio_device_hint": "Choose the input device for recordings. Changes take effect on the next recording.",
+    "custom_prompt_label": "Custom prompt (meeting type: Custom)",
+    "custom_prompt_placeholder": "System instruction for the LLM when recording a Custom meeting…",
+    "custom_prompt_hint": "Used when the meeting type is set to 'Custom'. Leave empty to use the default consulting prompt. Minimum 20 characters."
+  },
+  "stats": {
+    "title": "Statistics",
+    "total_meetings": "Meetings",
+    "total_duration": "Total duration",
+    "total_action_items": "Action items",
+    "by_type": "By type",
+    "weekly_trend": "12-week trend"
   },
   "onboarding": {
     "loading_app": "Loading…",

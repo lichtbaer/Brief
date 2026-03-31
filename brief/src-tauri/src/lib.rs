@@ -86,6 +86,11 @@ pub fn run() {
                 storage
                     .apply_recommended_llm_if_not_overridden(recommended)
                     .await?;
+                // Enforce audio retention on startup: delete expired WAV files silently.
+                // A failure here is non-fatal — log and continue.
+                if let Err(e) = storage.purge_expired_audio().await {
+                    eprintln!("purge_expired_audio on startup failed: {}", e);
+                }
                 Ok::<_, String>(storage)
             })?;
 
@@ -115,7 +120,11 @@ pub fn run() {
             commands::meetings::update_meeting_title,
             commands::meetings::delete_meeting,
             commands::meetings::list_meetings_by_type,
+            commands::meetings::enforce_audio_retention,
+            commands::meetings::update_follow_up_draft,
+            commands::meetings::get_meeting_stats,
             commands::export::export_markdown,
+            commands::export::export_action_items_csv,
             commands::export::export_pdf,
             commands::export::get_audio_path,
             commands::export::export_audio,

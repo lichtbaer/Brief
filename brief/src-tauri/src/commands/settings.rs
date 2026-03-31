@@ -163,6 +163,21 @@ pub async fn update_setting(
         storage.set_setting("meeting_language", &trimmed).await?;
         return Ok(());
     }
+    if key == "custom_prompt_template" {
+        let trimmed = value.trim();
+        // Allow empty string to clear the custom template; non-empty must be at least 20 chars.
+        if !trimmed.is_empty() && trimmed.len() < 20 {
+            return Err(
+                AppError::ValidationError(
+                    "Custom prompt must be at least 20 characters".into(),
+                )
+                .into(),
+            );
+        }
+        let storage = state.storage.lock().await;
+        storage.set_setting("custom_prompt_template", trimmed).await?;
+        return Ok(());
+    }
     let storage = state.storage.lock().await;
     storage.set_setting(&key, &value).await
 }

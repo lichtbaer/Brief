@@ -9,7 +9,7 @@ import { useCallback, useState } from "react";
 
 import { safeExportBaseName } from "../views/OutputView";
 
-export type ExportFormat = "markdown" | "pdf" | "audio";
+export type ExportFormat = "markdown" | "pdf" | "audio" | "csv";
 
 interface UseExportResult {
   exportBusy: ExportFormat | null;
@@ -19,6 +19,7 @@ interface UseExportResult {
   exportMarkdown: (meetingId: string, title: string) => Promise<void>;
   exportPdf: (meetingId: string, title: string) => Promise<void>;
   exportAudio: (meetingId: string) => Promise<string | null>;
+  exportCsv: (meetingId: string) => Promise<void>;
 }
 
 export function useExport(): UseExportResult {
@@ -98,5 +99,19 @@ export function useExport(): UseExportResult {
     }
   }, [showError, showSuccess]);
 
-  return { exportBusy, exportError, exportSuccess, exportMarkdown, exportPdf, exportAudio };
+  const exportCsv = useCallback(async (meetingId: string) => {
+    setExportBusy("csv");
+    try {
+      const savedPath = await invoke<string>("export_action_items_csv", { id: meetingId });
+      showSuccess(savedPath);
+    } catch (e) {
+      if (!String(e).includes("cancelled")) {
+        showError(e);
+      }
+    } finally {
+      setExportBusy(null);
+    }
+  }, [showError, showSuccess]);
+
+  return { exportBusy, exportError, exportSuccess, exportMarkdown, exportPdf, exportAudio, exportCsv };
 }

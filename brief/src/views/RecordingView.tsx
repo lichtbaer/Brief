@@ -217,6 +217,23 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
     }
   };
 
+  // Keyboard shortcut: Space bar toggles recording start/stop.
+  // Ignored when the focus is inside an interactive element (input, textarea, select, button)
+  // to avoid conflicts with form interactions.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      const tag = (e.target as HTMLElement).tagName.toLowerCase();
+      if (["input", "textarea", "select", "button"].includes(tag)) return;
+      e.preventDefault();
+      if (status === "idle") void startRecording();
+      else if (status === "recording") void stopAndProcess();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, sessionId]);
+
   // Characters shown in the post-recording transcript preview — kept as a named constant.
   const TRANSCRIPT_PREVIEW_CHARS = 200;
   const transcriptPreview =
@@ -380,6 +397,12 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
           buttonLabel
         )}
       </button>
+      {/* Space bar shortcut hint — shown when idle or recording */}
+      {(status === "idle" || status === "recording") && (
+        <p style={{ marginTop: "0.5rem", fontSize: "0.78rem", color: "var(--color-text-subtle)" }}>
+          {t("recording.shortcut_hint")}
+        </p>
+      )}
     </div>
   );
 }
