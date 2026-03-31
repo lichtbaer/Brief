@@ -22,7 +22,7 @@ pub fn list_audio_input_devices() -> Vec<String> {
             .filter_map(|d| d.name().ok())
             .collect(),
         Err(e) => {
-            eprintln!("Failed to enumerate audio devices: {e}");
+            log::error!("Failed to enumerate audio devices: {e}");
             vec![]
         }
     }
@@ -100,6 +100,9 @@ impl AudioRecorder {
         }
         .ok_or_else(|| "No microphone found".to_string())?;
 
+        let device_display = device.name().unwrap_or_else(|_| "<unknown>".to_string());
+        log::info!("Starting audio recording on device: {}", device_display);
+
         let supported = device.default_input_config().map_err(|e| e.to_string())?;
 
         let sample_rate = supported.sample_rate().0;
@@ -114,7 +117,7 @@ impl AudioRecorder {
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
 
         let join = std::thread::spawn(move || {
-            let err_fn = |err: cpal::StreamError| eprintln!("Audio error: {err}");
+            let err_fn = |err: cpal::StreamError| log::error!("Audio stream error: {err}");
 
             let stream_result = match sample_format {
                 cpal::SampleFormat::I8 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, i8),
@@ -128,7 +131,7 @@ impl AudioRecorder {
                 cpal::SampleFormat::F32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, f32),
                 cpal::SampleFormat::F64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, f64),
                 f => {
-                    eprintln!("Unsupported audio sample format: {f}");
+                    log::error!("Unsupported audio sample format: {f}");
                     return;
                 }
             };
@@ -136,13 +139,13 @@ impl AudioRecorder {
             let stream = match stream_result {
                 Ok(s) => s,
                 Err(e) => {
-                    eprintln!("Failed to build audio stream: {e}");
+                    log::error!("Failed to build audio stream: {e}");
                     return;
                 }
             };
 
             if let Err(e) = stream.play() {
-                eprintln!("Failed to start audio stream: {e}");
+                log::error!("Failed to start audio stream: {e}");
                 return;
             }
 
@@ -157,6 +160,7 @@ impl AudioRecorder {
 
     /// Stops capture, joins the stream thread, resamples buffered audio to 16 kHz mono, and writes a float WAV at `output_path`.
     pub fn stop_and_save(&mut self, output_path: &PathBuf) -> Result<(), String> {
+        log::info!("Stopping recording and saving WAV to {}", output_path.display());
         if let Some(tx) = self.stop_tx.take() {
             let _ = tx.send(());
         }
@@ -217,6 +221,7 @@ fn resample_to_16k(samples: &[f32], source_rate: u32) -> Vec<f32> {
     if source_rate == 16000 {
         return samples.to_vec();
     }
+    log::debug!("Resampling {} samples from {} Hz to 16000 Hz", samples.len(), source_rate);
     let ratio = 16000.0 / source_rate as f64;
     if samples.is_empty() {
         return Vec::new();

@@ -16,6 +16,7 @@ pub struct Storage {
 impl Storage {
     /// Opens or creates an encrypted database at `db_path`, applies migrations (including FTS backfill), and returns a ready pool.
     pub async fn new(db_path: &str, encryption_key: &str) -> Result<Self, String> {
+        log::info!("Opening database at {}", db_path);
         let key_pragma = format!("'{}'", escape_key_pragma(encryption_key));
 
         let opts = SqliteConnectOptions::new()
@@ -40,6 +41,7 @@ impl Storage {
                 e
             }
         })?;
+        log::debug!("Database migrations complete");
         Ok(storage)
     }
 
@@ -269,6 +271,7 @@ impl Storage {
     /// Both INSERTs run inside a single transaction so the DB never ends up with a meetings row
     /// that is missing from the FTS index (or vice versa).
     pub async fn save_meeting(&self, meeting: &Meeting) -> Result<(), String> {
+        log::debug!("Saving meeting: id={} type={}", meeting.id, meeting.meeting_type);
         let output_json = serde_json::to_string(&meeting.output).map_err(|e| e.to_string())?;
         let tags_json = serde_json::to_string(&meeting.tags).map_err(|e| e.to_string())?;
         let segments_json = serde_json::to_string(&meeting.segments).map_err(|e| e.to_string())?;
@@ -593,8 +596,10 @@ impl Storage {
     /// Full-text search across meeting titles and transcripts (FTS5).
     pub async fn search_meetings(&self, query: &str) -> Result<String, String> {
         let Some(fts_query) = build_fts5_query(query) else {
+            log::debug!("search_meetings: empty or unparseable query, returning empty result");
             return Ok("[]".to_string());
         };
+        log::debug!("search_meetings: fts_query={:?}", fts_query);
 
         let rows = sqlx::query(
             "SELECT m.id, m.created_at, m.meeting_type, m.title, m.output_json, m.tags_json, m.duration_seconds
@@ -698,7 +703,7 @@ impl Storage {
             // Delete the file; "not found" is tolerated (may have been manually removed).
             if let Err(e) = std::fs::remove_file(&audio_path) {
                 if e.kind() != std::io::ErrorKind::NotFound {
-                    eprintln!("purge_expired_audio: could not delete {}: {}", audio_path, e);
+                    log::warn!("purge_expired_audio: could not delete {}: {}", audio_path, e);
                 }
             }
 
@@ -1098,6 +1103,104 @@ mod tests {
         let all = s.get_all_settings().await.unwrap();
         assert!(all.contains("test_key"));
         assert!(all.contains("updated"));
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    // -- get_meeting_stats on empty database --
+
+    #[tokio::test]
+    async fn get_meeting_stats_empty_db_returns_zero_total() {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let tmp = std::env::temp_dir().join(format!("brief_test_stats_{ts}.db"));
+        let _ = std::fs::remove_file(&tmp);
+        let key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        let s = Storage::new(tmp.to_str().unwrap(), key).await.unwrap();
+        let stats_json = s.get_meeting_stats().await.unwrap();
+
+        // Stats must be valid JSON containing a total field equal to 0.
+        let stats: serde_json::Value = serde_json::from_str(&stats_json).unwrap();
+        // An empty DB may return 0 or null for the total — both represent zero meetings.
+        let total = stats["total"].as_i64().unwrap_or(0);
+        assert_eq!(total, 0, "Empty DB must report total=0");
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    // -- update_speaker_names roundtrip --
+
+    #[tokio::test]
+    async fn update_speaker_names_roundtrip() {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let tmp = std::env::temp_dir().join(format!("brief_test_speakers_{ts}.db"));
+        let _ = std::fs::remove_file(&tmp);
+        let key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        let s = Storage::new(tmp.to_str().unwrap(), key).await.unwrap();
+
+        // Save a meeting first.
+        let m = meeting_from_transcription(
+            "spk-1".into(),
+            "internal".into(),
+            "Speaker Test".into(),
+            None,
+            &[],
+            "de",
+        );
+        s.save_meeting(&m).await.unwrap();
+
+        // Assign display names to speaker labels.
+        let mut names = std::collections::HashMap::new();
+        names.insert("SPEAKER_00".to_string(), "Alice".to_string());
+        names.insert("SPEAKER_01".to_string(), "Bob".to_string());
+        s.update_speaker_names("spk-1", &names).await.unwrap();
+
+        // Reload and verify the names are persisted.
+        let json = s.get_meeting("spk-1").await.unwrap().unwrap();
+        assert!(json.contains("Alice"), "Alice must be in stored speaker_names");
+        assert!(json.contains("Bob"), "Bob must be in stored speaker_names");
+
+        let _ = std::fs::remove_file(&tmp);
+    }
+
+    // -- search_meetings unicode query --
+
+    #[tokio::test]
+    async fn search_meetings_unicode_query_returns_match() {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let tmp = std::env::temp_dir().join(format!("brief_test_unicode_{ts}.db"));
+        let _ = std::fs::remove_file(&tmp);
+        let key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+        let s = Storage::new(tmp.to_str().unwrap(), key).await.unwrap();
+
+        // Save a meeting whose title contains German umlauts.
+        let m = meeting_from_transcription(
+            "uni-1".into(),
+            "consulting".into(),
+            "Ärztliches Gespräch".into(),
+            None,
+            &[],
+            "de",
+        );
+        s.save_meeting(&m).await.unwrap();
+
+        // Searching with umlauts must find the meeting.
+        let results = s.search_meetings("Ärztliches").await.unwrap();
+        assert!(
+            results.contains("uni-1"),
+            "Unicode FTS5 search must find the meeting by umlaut title"
+        );
 
         let _ = std::fs::remove_file(&tmp);
     }

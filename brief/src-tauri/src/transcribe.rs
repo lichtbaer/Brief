@@ -15,7 +15,7 @@ pub const TRANSCRIPTION_TIMEOUT_ERROR: &str = "BRIEF_ERR_TRANSCRIPTION_TIMEOUT";
 pub const DEFAULT_WHISPERX_TIMEOUT_SECS: u64 = 900;
 
 /// One timed utterance with a diarized speaker label and transcript text.
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct DiarizedSegment {
     pub speaker: String,
     pub start: f64,
@@ -127,6 +127,11 @@ impl Transcriber {
             .to_str()
             .ok_or_else(|| "Audio-Pfad ist nicht als UTF-8 darstellbar".to_string())?;
 
+        log::info!(
+            "Starting transcription: audio={} language={} model={} timeout={}s",
+            audio_str, self.language, self.model_size, self.timeout_secs
+        );
+
         let mut child = Command::new(&self.python_bin)
             .arg(&self.runner_script)
             .arg(audio_str)
@@ -149,6 +154,10 @@ impl Transcriber {
         let stderr_handle = thread::spawn(move || {
             let mut s = String::new();
             let _ = stderr_pipe.read_to_string(&mut s);
+            // Forward each stderr line as a debug log so progress messages appear in app logs.
+            for line in s.lines() {
+                log::debug!("whisperx stderr: {}", line);
+            }
             s
         });
 
@@ -163,6 +172,10 @@ impl Transcriber {
 
         loop {
             if start.elapsed() >= timeout {
+                log::warn!(
+                    "Transcription timed out after {}s for audio={}",
+                    self.timeout_secs, audio_str
+                );
                 let _ = child.kill();
                 let _ = child.wait();
                 let _ = stdout_handle.join();
@@ -195,6 +208,8 @@ impl Transcriber {
                         return Err(format!("WhisperX-Fehler: {}", err.error));
                     }
 
+                    let elapsed = start.elapsed().as_secs_f32();
+                    log::info!("Transcription finished in {:.1}s", elapsed);
                     return serde_json::from_str::<WhisperXOutput>(&stdout).map_err(|e| {
                         format!("WhisperX-Output nicht parsbar: {} — Output: {}", e, stdout)
                     });
@@ -226,7 +241,7 @@ impl Transcriber {
 
 #[cfg(test)]
 mod tests {
-    use super::Transcriber;
+    use super::{Transcriber, WhisperXError, WhisperXOutput, TRANSCRIPTION_TIMEOUT_ERROR};
 
     #[test]
     fn check_available_false_when_python_binary_missing() {
@@ -268,5 +283,44 @@ mod tests {
     fn with_timeout_secs_preserves_valid_value() {
         let t = Transcriber::new(None, None).with_timeout_secs(600);
         assert_eq!(t.timeout_secs, 600);
+    }
+
+    // -- JSON output parsing --
+
+    #[test]
+    fn parse_success_json_output() {
+        // Verify that the WhisperXOutput deserializer correctly maps the canonical success payload.
+        let json = r#"{
+            "segments": [
+                {"speaker":"SPEAKER_00","start":0.0,"end":1.5,"text":"Hello world"},
+                {"speaker":"SPEAKER_01","start":1.5,"end":3.0,"text":"Goodbye"}
+            ],
+            "language": "en"
+        }"#;
+        let out: WhisperXOutput = serde_json::from_str(json).expect("should parse");
+        assert_eq!(out.segments.len(), 2);
+        assert_eq!(out.segments[0].speaker, "SPEAKER_00");
+        assert_eq!(out.segments[0].text, "Hello world");
+        assert!((out.segments[1].start - 1.5).abs() < f64::EPSILON);
+        assert_eq!(out.language, "en");
+    }
+
+    #[test]
+    fn parse_error_json_distinguishes_from_success() {
+        // A WhisperXError payload must deserialize as an error, not as WhisperXOutput.
+        let error_json = r#"{"error": "File not found: /tmp/missing.wav"}"#;
+        let as_success = serde_json::from_str::<WhisperXOutput>(error_json);
+        // Missing `segments` field means this should fail to parse as WhisperXOutput.
+        assert!(as_success.is_err(), "error JSON must not parse as WhisperXOutput");
+
+        let as_error = serde_json::from_str::<WhisperXError>(error_json);
+        assert!(as_error.is_ok());
+        assert_eq!(as_error.unwrap().error, "File not found: /tmp/missing.wav");
+    }
+
+    #[test]
+    fn transcription_timeout_error_constant_is_stable() {
+        // The token must remain stable; the frontend matches it by string equality.
+        assert_eq!(TRANSCRIPTION_TIMEOUT_ERROR, "BRIEF_ERR_TRANSCRIPTION_TIMEOUT");
     }
 }
