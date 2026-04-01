@@ -8,7 +8,18 @@ use tauri_plugin_dialog::DialogExt;
 
 use super::meetings::fetch_meeting_value;
 
+/// Reads the current UI language from settings (defaults to "de").
+async fn get_ui_language(storage: &crate::storage::Storage) -> String {
+    storage
+        .get_setting("ui_language")
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "de".to_string())
+}
+
 /// Export meeting as Markdown (frontend saves via system dialog).
+/// Section headers are localised to the current UI language.
 #[tauri::command]
 pub async fn export_markdown(
     id: String,
@@ -16,10 +27,12 @@ pub async fn export_markdown(
 ) -> Result<String, String> {
     let storage = state.storage.lock().await;
     let meeting = fetch_meeting_value(&storage, &id).await?;
-    Ok(crate::export::generate_markdown(&meeting))
+    let lang = get_ui_language(&storage).await;
+    Ok(crate::export::generate_markdown(&meeting, &lang))
 }
 
 /// Export meeting as PDF bytes (base64); frontend decodes and saves via dialog.
+/// Section headers are localised to the current UI language.
 #[tauri::command]
 pub async fn export_pdf(
     id: String,
@@ -27,7 +40,8 @@ pub async fn export_pdf(
 ) -> Result<String, String> {
     let storage = state.storage.lock().await;
     let meeting = fetch_meeting_value(&storage, &id).await?;
-    let markdown = crate::export::generate_markdown(&meeting);
+    let lang = get_ui_language(&storage).await;
+    let markdown = crate::export::generate_markdown(&meeting, &lang);
     let bytes = crate::export::generate_pdf(&markdown)?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }

@@ -130,6 +130,7 @@ pub fn run() {
             commands::meetings::enforce_audio_retention,
             commands::meetings::update_follow_up_draft,
             commands::meetings::get_meeting_stats,
+            commands::meetings::delete_meetings_before,
             commands::export::export_markdown,
             commands::export::export_action_items_csv,
             commands::export::export_pdf,

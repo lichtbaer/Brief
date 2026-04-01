@@ -54,7 +54,8 @@
     "step_summarizing": "Erstelle Zusammenfassung…",
     "elapsed": "{{time}} aufgezeichnet",
     "processing_elapsed": "{{time}} verarbeitet",
-    "level_meter_aria": "Mikrofon-Eingangspegel"
+    "level_meter_aria": "Mikrofon-Eingangspegel",
+    "buffer_overflow_warning": "Aufnahme hat das ~4-Stunden-Limit erreicht. Neue Audio-Daten werden nicht mehr aufgezeichnet."
   },
   "errors": {
     "whisperx_unavailable": "WhisperX ist nicht verfügbar. Bitte Python-Umgebung einrichten: cd whisperx_runner && bash setup.sh",
@@ -79,7 +80,11 @@
     "filter_by_type": "Nach Typ filtern",
     "type_filter_clear": "Typfilter löschen",
     "delete_meeting": "Löschen",
-    "delete_meeting_aria": "Meeting löschen: {{title}}"
+    "delete_meeting_aria": "Meeting löschen: {{title}}",
+    "bulk_delete_label": "Meetings vor Datum löschen:",
+    "bulk_delete_btn": "Alle löschen",
+    "bulk_deleting": "Lösche…",
+    "bulk_delete_confirm": "Wirklich alle Meetings vor dem {{date}} löschen? Diese Aktion kann nicht rückgängig gemacht werden."
   },
   "output": {
     "back": "Zurück",

@@ -2,24 +2,65 @@
 
 use printpdf::{BuiltinFont, Mm, PdfDocument};
 
+/// Localized section headers for Markdown/PDF export.
+struct ExportLabels {
+    date: &'static str,
+    type_label: &'static str,
+    summary: &'static str,
+    topics: &'static str,
+    decisions: &'static str,
+    action_items: &'static str,
+    follow_up: &'static str,
+    participants: &'static str,
+}
+
+const LABELS_DE: ExportLabels = ExportLabels {
+    date: "Datum",
+    type_label: "Typ",
+    summary: "Zusammenfassung",
+    topics: "Besprochene Themen",
+    decisions: "Entscheidungen",
+    action_items: "Action Items",
+    follow_up: "Follow-up E-Mail",
+    participants: "Teilnehmer",
+};
+
+const LABELS_EN: ExportLabels = ExportLabels {
+    date: "Date",
+    type_label: "Type",
+    summary: "Summary",
+    topics: "Topics discussed",
+    decisions: "Decisions",
+    action_items: "Action items",
+    follow_up: "Follow-up email",
+    participants: "Participants",
+};
+
+/// Returns export labels matching the UI language; defaults to German for unknown codes.
+fn labels_for_language(lang: &str) -> &'static ExportLabels {
+    if lang.starts_with("en") { &LABELS_EN } else { &LABELS_DE }
+}
+
 /// Builds Markdown from stored meeting JSON (snake_case keys).
-pub fn generate_markdown(meeting: &serde_json::Value) -> String {
+/// `language` determines section header language ("de" or "en"); defaults to German.
+pub fn generate_markdown(meeting: &serde_json::Value, language: &str) -> String {
+    let l = labels_for_language(language);
     let title = meeting["title"].as_str().unwrap_or("Meeting");
     let date = meeting["created_at"].as_str().unwrap_or("");
     let meeting_type = meeting["meeting_type"].as_str().unwrap_or("");
     let output = &meeting["output"];
 
-    let mut md = format!("# {title}\n\n**Datum:** {date}  \n**Typ:** {meeting_type}\n\n");
+    let mut md = format!("# {title}\n\n**{}:** {date}  \n**{}:** {meeting_type}\n\n", l.date, l.type_label);
 
     if let Some(summary) = output["summary_short"].as_str() {
         if !summary.is_empty() {
-            md.push_str(&format!("## Zusammenfassung\n\n{summary}\n\n"));
+            md.push_str(&format!("## {}\n\n{summary}\n\n", l.summary));
         }
     }
 
     if let Some(topics) = output["topics"].as_array() {
         if !topics.is_empty() {
-            md.push_str("## Besprochene Themen\n\n");
+            md.push_str(&format!("## {}\n\n", l.topics));
             for topic in topics {
                 let t = topic["title"].as_str().unwrap_or("");
                 let summary = topic["summary"].as_str().unwrap_or("");
@@ -30,7 +71,7 @@ pub fn generate_markdown(meeting: &serde_json::Value) -> String {
 
     if let Some(decisions) = output["decisions"].as_array() {
         if !decisions.is_empty() {
-            md.push_str("## Entscheidungen\n\n");
+            md.push_str(&format!("## {}\n\n", l.decisions));
             for d in decisions {
                 let desc = d["description"].as_str().unwrap_or("");
                 md.push_str(&format!("- {desc}\n"));
@@ -46,7 +87,7 @@ pub fn generate_markdown(meeting: &serde_json::Value) -> String {
 
     if let Some(items) = output["action_items"].as_array() {
         if !items.is_empty() {
-            md.push_str("## Action Items\n\n");
+            md.push_str(&format!("## {}\n\n", l.action_items));
             for item in items {
                 let desc = item["description"].as_str().unwrap_or("");
                 let owner = item["owner"].as_str().unwrap_or("");
@@ -71,7 +112,7 @@ pub fn generate_markdown(meeting: &serde_json::Value) -> String {
     if let Some(draft) = output["follow_up_draft"].as_object() {
         if let Some(full_text) = draft.get("full_text").and_then(|v| v.as_str()) {
             if !full_text.is_empty() {
-                md.push_str(&format!("## Follow-up E-Mail\n\n```\n{full_text}\n```\n\n"));
+                md.push_str(&format!("## {}\n\n```\n{full_text}\n```\n\n", l.follow_up));
             }
         }
     }
@@ -84,7 +125,7 @@ pub fn generate_markdown(meeting: &serde_json::Value) -> String {
                 .filter(|s| !s.is_empty())
                 .collect();
             if !names.is_empty() {
-                md.push_str("## Teilnehmer\n\n");
+                md.push_str(&format!("## {}\n\n", l.participants));
                 md.push_str(&format!("{}\n\n", names.join(", ")));
             }
         }
@@ -219,7 +260,7 @@ mod tests {
 
     #[test]
     fn markdown_contains_title_and_date() {
-        let md = generate_markdown(&sample_meeting());
+        let md = generate_markdown(&sample_meeting(), "de");
         assert!(md.starts_with("# Quarterly Review"));
         assert!(md.contains("2025-03-01T10:00:00Z"));
         assert!(md.contains("consulting"));
@@ -227,14 +268,14 @@ mod tests {
 
     #[test]
     fn markdown_contains_summary() {
-        let md = generate_markdown(&sample_meeting());
+        let md = generate_markdown(&sample_meeting(), "de");
         assert!(md.contains("## Zusammenfassung"));
         assert!(md.contains("Revenue up 20%"));
     }
 
     #[test]
     fn markdown_contains_topics() {
-        let md = generate_markdown(&sample_meeting());
+        let md = generate_markdown(&sample_meeting(), "de");
         assert!(md.contains("## Besprochene Themen"));
         assert!(md.contains("### Sales"));
         assert!(md.contains("Q1 targets exceeded."));
@@ -243,7 +284,7 @@ mod tests {
 
     #[test]
     fn markdown_contains_decisions_with_context() {
-        let md = generate_markdown(&sample_meeting());
+        let md = generate_markdown(&sample_meeting(), "de");
         assert!(md.contains("## Entscheidungen"));
         assert!(md.contains("- Budget increase approved"));
         assert!(md.contains("Pending CFO sign-off"));
@@ -251,7 +292,7 @@ mod tests {
 
     #[test]
     fn markdown_contains_action_items_with_metadata() {
-        let md = generate_markdown(&sample_meeting());
+        let md = generate_markdown(&sample_meeting(), "de");
         assert!(md.contains("## Action Items"));
         assert!(md.contains("**Send updated forecast**"));
         assert!(md.contains("👤 Alice"));
@@ -263,16 +304,29 @@ mod tests {
 
     #[test]
     fn markdown_contains_follow_up_email() {
-        let md = generate_markdown(&sample_meeting());
+        let md = generate_markdown(&sample_meeting(), "de");
         assert!(md.contains("## Follow-up E-Mail"));
         assert!(md.contains("Hi team,"));
     }
 
     #[test]
     fn markdown_contains_participants() {
-        let md = generate_markdown(&sample_meeting());
+        let md = generate_markdown(&sample_meeting(), "de");
         assert!(md.contains("## Teilnehmer"));
         assert!(md.contains("Alice, Bob"));
+    }
+
+    #[test]
+    fn markdown_english_uses_english_headers() {
+        let md = generate_markdown(&sample_meeting(), "en");
+        assert!(md.contains("## Summary"));
+        assert!(md.contains("## Topics discussed"));
+        assert!(md.contains("## Decisions"));
+        assert!(md.contains("## Participants"));
+        assert!(md.contains("**Date:**"));
+        // Should NOT contain German headers.
+        assert!(!md.contains("Zusammenfassung"));
+        assert!(!md.contains("Teilnehmer"));
     }
 
     #[test]
@@ -290,7 +344,7 @@ mod tests {
                 "participants_mentioned": []
             }
         });
-        let md = generate_markdown(&meeting);
+        let md = generate_markdown(&meeting, "de");
         assert!(md.starts_with("# Empty"));
         // Should NOT contain section headers for empty arrays.
         assert!(!md.contains("## Besprochene Themen"));
@@ -304,7 +358,7 @@ mod tests {
     fn markdown_handles_missing_keys() {
         // Simulate a minimal/broken meeting JSON — export should not panic.
         let meeting = json!({});
-        let md = generate_markdown(&meeting);
+        let md = generate_markdown(&meeting, "de");
         assert!(md.contains("# Meeting")); // fallback title
     }
 
@@ -345,7 +399,7 @@ mod tests {
 
     #[test]
     fn generate_pdf_produces_valid_bytes() {
-        let md = generate_markdown(&sample_meeting());
+        let md = generate_markdown(&sample_meeting(), "de");
         let bytes = generate_pdf(&md).expect("PDF generation should succeed");
         // PDF files always start with %PDF.
         assert!(bytes.len() > 100, "PDF too small");
@@ -376,7 +430,7 @@ mod tests {
                 "participants_mentioned": []
             }
         });
-        let md = generate_markdown(&meeting);
+        let md = generate_markdown(&meeting, "de");
         // Should not crash and should preserve the raw content.
         assert!(md.contains("*bold*"));
         assert!(md.contains("`code`"));
@@ -398,7 +452,7 @@ mod tests {
                 "participants_mentioned": ["Ünsal", "José"]
             }
         });
-        let md = generate_markdown(&meeting);
+        let md = generate_markdown(&meeting, "de");
         assert!(md.contains("Sprint 🚀"));
         assert!(md.contains("💪"));
         assert!(md.contains("🎉"));

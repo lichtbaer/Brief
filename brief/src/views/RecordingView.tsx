@@ -100,6 +100,8 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
   const [processingElapsed, setProcessingElapsed] = useState(0);
   // Audio level [0, 1] polled from backend while recording to drive the level meter.
   const [audioLevel, setAudioLevel] = useState(0);
+  // True when the recording buffer hit the ~4 hour cap and frames are being dropped.
+  const [bufferOverflow, setBufferOverflow] = useState(false);
 
   const { status, sessionId, error, meeting, processingStep } = state;
 
@@ -153,7 +155,12 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
       return;
     }
     const id = setInterval(() => {
-      void invoke<number>("get_audio_level", { sessionId }).then(setAudioLevel).catch(() => {});
+      void invoke<{ level: number; buffer_overflow: boolean }>("get_audio_level", { sessionId })
+        .then((status) => {
+          setAudioLevel(status.level);
+          if (status.buffer_overflow) setBufferOverflow(true);
+        })
+        .catch(() => {});
     }, 200);
     return () => clearInterval(id);
   }, [status, sessionId]);
@@ -181,6 +188,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
 
   const startRecording = async () => {
     try {
+      setBufferOverflow(false);
       const id = await invoke<string>("start_recording", {
         meetingType: meetingType,
       });
@@ -335,6 +343,13 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
               }}
             />
           </div>
+          {/* Warning when recording buffer has hit the ~4 hour cap */}
+          {bufferOverflow && (
+            <div className="alert alert-error" role="alert" style={{ marginBottom: "0.75rem", fontSize: "0.85rem" }}>
+              <span>⚠</span>
+              <span>{t("recording.buffer_overflow_warning")}</span>
+            </div>
+          )}
         </>
       )}
 

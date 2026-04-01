@@ -161,6 +161,17 @@ pub async fn get_meeting_stats(
     storage.get_meeting_stats().await
 }
 
+/// Soft-deletes all meetings created before the given ISO timestamp.
+/// Returns the count of deleted meetings.
+#[tauri::command]
+pub async fn delete_meetings_before(
+    before: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<u32, String> {
+    let storage = state.storage.lock().await;
+    storage.delete_meetings_before(&before).await
+}
+
 /// Persists the speaker label → display name mapping for a meeting.
 /// The transcript text is not modified — names are applied at the display layer only,
 /// so FTS search continues to match original speaker labels.

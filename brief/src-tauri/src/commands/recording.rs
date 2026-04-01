@@ -61,17 +61,23 @@ pub async fn start_recording(
 }
 
 /// Stops the given session, writes a temp WAV path, and removes the recorder from memory.
+/// The `.remove()` inside the lock is atomic — concurrent `stop_recording` calls for the same
+/// session are safe: the first caller wins and subsequent callers receive `SessionNotFound`.
 #[tauri::command]
 pub async fn stop_recording(
     session_id: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
-    let mut recorder = state
-        .recordings
-        .lock()
-        .map_err(|_| AppError::StateLocked)?
-        .remove(&session_id)
-        .ok_or(AppError::SessionNotFound(session_id.clone()))?;
+    // Atomic remove under the lock: only one caller can win the race for a given session_id.
+    let mut recorder = {
+        let mut guard = state
+            .recordings
+            .lock()
+            .map_err(|_| AppError::StateLocked)?;
+        guard.remove(&session_id)
+            .ok_or(AppError::SessionNotFound(session_id.clone()))?
+        // Lock released here — stop_and_save runs without holding the global lock.
+    };
 
     let audio_path = std::env::temp_dir().join(format!("brief_{session_id}.wav"));
 
@@ -118,6 +124,11 @@ pub async fn process_meeting_inner(
         let lang = if matches!(lang.as_str(), "de" | "en") {
             lang
         } else {
+            log::warn!(
+                "Unsupported meeting language '{}' — falling back to 'de'. \
+                 Configure a supported language (de, en) in settings.",
+                lang
+            );
             "de".to_string()
         };
         (timeout, lang)

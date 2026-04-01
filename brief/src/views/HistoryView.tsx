@@ -171,6 +171,9 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
     }
 
     // FTS search mode — pagination disabled (results bounded by backend LIMIT).
+    // Client-side tag/type filtering is applied on top. When combined filters reduce
+    // FTS results significantly, the search limit hint is shown to let users know
+    // there may be more matches in the database.
     searchActiveRef.current = true;
     setHasMore(false);
     setNextCursor(null);
@@ -178,7 +181,8 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
     setLoadError(null);
     try {
       const result = await invoke<string>("search_meetings", { query: q });
-      let results = JSON.parse(result) as MeetingSummary[];
+      const ftsResults = JSON.parse(result) as MeetingSummary[];
+      let results = ftsResults;
       // Apply tag and type filters client-side on top of FTS results.
       if (tag) results = results.filter((m) => m.tags?.includes(tag));
       if (type) results = results.filter((m) => m.meeting_type === type);
@@ -255,6 +259,28 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
     }
   };
 
+  // -- Bulk delete state --
+  const [bulkDeleteBefore, setBulkDeleteBefore] = useState<string | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
+  /** Soft-deletes all meetings before the chosen date and reloads the list. */
+  const executeBulkDelete = async () => {
+    if (!bulkDeleteBefore) return;
+    // Convert the date input (YYYY-MM-DD) to an ISO timestamp at start of day.
+    const isoTimestamp = new Date(bulkDeleteBefore).toISOString();
+    if (!window.confirm(t("history.bulk_delete_confirm", { date: bulkDeleteBefore }))) return;
+    setBulkDeleting(true);
+    try {
+      const count = await invoke<number>("delete_meetings_before", { before: isoTimestamp });
+      setBulkDeleteBefore(null);
+      if (count > 0) void loadMeetings();
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
   // Collect all unique tags and meeting types from the currently loaded meetings for filter chips.
   const allTags = [...new Set(meetings.flatMap((m) => m.tags ?? []))];
   const allTypes = [...new Set(meetings.map((m) => m.meeting_type))];
@@ -277,6 +303,33 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
         style={{ maxWidth: "32rem", marginBottom: "0.75rem" }}
         aria-label={t("history.search_placeholder")}
       />
+
+      {/* Bulk delete — date picker + confirm button */}
+      {meetings.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginBottom: "0.75rem", alignItems: "center" }}>
+          <label style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+            {t("history.bulk_delete_label")}
+          </label>
+          <input
+            type="date"
+            value={bulkDeleteBefore ?? ""}
+            onChange={(e) => setBulkDeleteBefore(e.target.value || null)}
+            className="form-input"
+            style={{ maxWidth: "11rem", fontSize: "0.8rem" }}
+          />
+          {bulkDeleteBefore && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ fontSize: "0.8rem", color: "var(--color-error, #dc2626)" }}
+              disabled={bulkDeleting}
+              onClick={() => void executeBulkDelete()}
+            >
+              {bulkDeleting ? t("history.bulk_deleting") : t("history.bulk_delete_btn")}
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Tag filter row — always shown when tags exist so users can combine search + tag filter */}
       {allTags.length > 0 && (
@@ -501,7 +554,8 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
             </button>
           ))}
 
-          {/* Search result limit hint — FTS returns at most 20 results per query */}
+          {/* Search result limit hint — FTS returns at most 20 results per query.
+              Show proactively when exactly 20 results returned (likely truncated). */}
           {searchActiveRef.current && meetings.length >= 20 && (
             <p
               role="status"
@@ -511,6 +565,8 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
                 color: "var(--color-text-subtle)",
                 marginTop: "0.5rem",
                 padding: "0.5rem",
+                background: "var(--color-bg-muted, #f9fafb)",
+                borderRadius: "var(--radius-sm, 4px)",
               }}
             >
               {t("history.search_limit_hint")}
