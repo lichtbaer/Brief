@@ -1,5 +1,5 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useExport } from "../hooks/useExport";
@@ -8,6 +8,7 @@ import type {
   ActionItem,
   Decision,
   Meeting,
+  SettingDefaults,
   Topic,
 } from "../types";
 
@@ -28,6 +29,22 @@ const PRIORITY_BADGE_STYLE: Record<
   },
   low: { backgroundColor: "#dcfce7", color: "#166534", borderColor: "#4ade80" },
 };
+
+/**
+ * Splits `text` on case-insensitive occurrences of `query` and returns an array of React nodes
+ * where matched portions are wrapped in `<mark>` elements. Used for transcript search highlighting.
+ * Returns plain text when `query` is empty to avoid unnecessary React reconciliation.
+ */
+function highlightTerms(text: string, query: string): ReactNode {
+  if (!query.trim()) return text;
+  // Build a case-insensitive regex from the query; escape special regex characters.
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = text.split(new RegExp(`(${escaped})`, "gi"));
+  return parts.map((part, i) =>
+    // Every odd index is a match (the captured group from the regex split).
+    i % 2 === 1 ? <mark key={i}>{part}</mark> : part
+  );
+}
 
 /** Extracts unique speaker label IDs from a raw transcript string (e.g. "SPEAKER_00", "SPEAKER_01"). */
 function extractSpeakers(transcript: string): string[] {
@@ -56,6 +73,10 @@ interface OutputViewProps {
   onBack: () => void;
   /** Called with the refreshed meeting after a successful re-summarization. */
   onMeetingUpdated?: (updated: Meeting) => void;
+  /** Optional search query that opened this meeting — used to highlight matching terms in the transcript. */
+  searchQuery?: string;
+  /** Called when the user clicks a participant name to filter history by that person. */
+  onFilterByParticipant?: (name: string) => void;
 }
 
 /**
@@ -64,8 +85,10 @@ interface OutputViewProps {
  *
  * @param props.meeting — loaded meeting record.
  * @param props.onBack — header back action.
+ * @param props.searchQuery — optional search term; highlights matching text in the transcript.
+ * @param props.onFilterByParticipant — callback for participant name clicks; filters history view.
  */
-export function OutputView({ meeting, onBack, onMeetingUpdated }: OutputViewProps) {
+export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onFilterByParticipant }: OutputViewProps) {
   const { t } = useTranslation();
   const { exportBusy, exportError, exportSuccess, exportMarkdown, exportPdf, exportAudio, exportCsv } = useExport();
   const [copied, setCopied] = useState(false);
@@ -74,6 +97,15 @@ export function OutputView({ meeting, onBack, onMeetingUpdated }: OutputViewProp
   const [regenerating, setRegenerating] = useState(false);
   // Shown when speaker name persistence fails — cosmetic, but user should know the save failed.
   const [speakerSaveError, setSpeakerSaveError] = useState(false);
+
+  // Ref to the <audio> element for click-to-seek segment playback (Feature 2).
+  const audioRef = useRef<HTMLAudioElement>(null);
+  // Index of the segment currently being played — updated via the timeupdate event.
+  const [currentSegmentIndex, setCurrentSegmentIndex] = useState<number | null>(null);
+
+  // Stale analysis warning: dismissed by the user per session (Feature 4).
+  const [staleWarningDismissed, setStaleWarningDismissed] = useState(false);
+  const [currentTemplateVersion, setCurrentTemplateVersion] = useState<string | null>(null);
 
   // Follow-up email draft editing state.
   const [followUpEditText, setFollowUpEditText] = useState<string | null>(null);
@@ -98,7 +130,7 @@ export function OutputView({ meeting, onBack, onMeetingUpdated }: OutputViewProp
   const speakerNamesRef = useRef(speakerNames);
   speakerNamesRef.current = speakerNames;
 
-  // Segment-level playback (per speaker) is planned for v1.1 — depends on diarization (BRIEF-SPIKE-001 / ADR-010).
+  // Loads the retained audio URL from the backend; resets when meeting changes.
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
@@ -122,6 +154,36 @@ export function OutputView({ meeting, onBack, onMeetingUpdated }: OutputViewProp
       cancelled = true;
     };
   }, [meeting.id, meeting.audio_path]);
+
+  // Fetch the current template version from the backend once per mount to power the
+  // stale-analysis warning banner (Feature 4).
+  useEffect(() => {
+    void invoke<SettingDefaults>("get_setting_defaults")
+      .then((d) => setCurrentTemplateVersion(d.template_version))
+      .catch(() => { /* non-fatal */ });
+  }, []);
+
+  // Tracks which transcript segment is currently audible so the active row can be highlighted
+  // and the seek buttons can reflect playback state (Feature 2).
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !meeting.segments || meeting.segments.length === 0) return;
+    const segments = meeting.segments;
+
+    const onTimeUpdate = () => {
+      const t = audio.currentTime;
+      // Find the last segment whose start time is ≤ current playback position.
+      let active = -1;
+      for (let i = 0; i < segments.length; i++) {
+        if (segments[i].start <= t) active = i;
+        else break;
+      }
+      setCurrentSegmentIndex(active >= 0 ? active : null);
+    };
+
+    audio.addEventListener("timeupdate", onTimeUpdate);
+    return () => audio.removeEventListener("timeupdate", onTimeUpdate);
+  }, [meeting.segments, audioUrl]);
 
   const output = meeting.output;
   const followUp = output.follow_up_draft;
@@ -454,10 +516,53 @@ export function OutputView({ meeting, onBack, onMeetingUpdated }: OutputViewProp
         </div>
       </section>
 
+      {/* Stale analysis warning — shown when stored template_version is older than current (Feature 4) */}
+      {!staleWarningDismissed
+        && currentTemplateVersion !== null
+        && meeting.output.template_version
+        && meeting.output.template_version !== currentTemplateVersion && (
+        <div
+          className="alert"
+          role="status"
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: "0.75rem",
+            justifyContent: "space-between",
+            marginBottom: "1rem",
+            background: "var(--color-warning-bg, #fef9c3)",
+            border: "1px solid var(--color-warning, #facc15)",
+            borderRadius: "var(--radius)",
+            padding: "0.75rem 1rem",
+            fontSize: "0.875rem",
+          }}
+        >
+          <span>{t("output.stale_analysis_warning")}</span>
+          <button
+            type="button"
+            onClick={() => setStaleWarningDismissed(true)}
+            aria-label={t("output.stale_analysis_dismiss")}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: 0,
+              fontSize: "1rem",
+              lineHeight: 1,
+              color: "var(--color-text-muted)",
+              flexShrink: 0,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       <section className="output-section">
         <h2>{t("output.audio_recording")}</h2>
         {audioUrl ? (
-          <audio controls src={audioUrl} aria-label={t("output.audio_recording")} style={{ width: "100%", marginTop: "0.5rem" }} />
+          // ref is needed for click-to-seek segment playback (Feature 2).
+          <audio ref={audioRef} controls src={audioUrl} aria-label={t("output.audio_recording")} style={{ width: "100%", marginTop: "0.5rem" }} />
         ) : (
           <p style={{ marginTop: "0.5rem", color: "var(--color-text-muted)", fontSize: "0.9rem" }}>
             {t("output.audio_not_saved")}
@@ -667,11 +772,12 @@ export function OutputView({ meeting, onBack, onMeetingUpdated }: OutputViewProp
       )}
 
       <section className="output-section">
-        <details>
+        {/* Auto-open the details element when the user arrived via a search query (Feature 6) */}
+        <details open={!!searchQuery}>
           <summary style={{ cursor: "pointer", userSelect: "none", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--color-text-subtle)", fontWeight: 600 }}>
             {t("output.transcript")}
           </summary>
-          {/* When diarized segments are available, render them with timestamps for navigation.
+          {/* When diarized segments are available, render them with timestamps for click-to-seek.
               Fall back to the plain transcript for older meetings without segment data. */}
           {meeting.segments && meeting.segments.length > 0 ? (
             <div style={{ marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
@@ -680,22 +786,57 @@ export function OutputView({ meeting, onBack, onMeetingUpdated }: OutputViewProp
                 const startSec = Math.floor(seg.start);
                 const mins = String(Math.floor(startSec / 60)).padStart(2, "0");
                 const secs = String(startSec % 60).padStart(2, "0");
+                const isActive = currentSegmentIndex === i;
                 return (
-                  <div key={i} style={{ display: "flex", gap: "0.75rem", alignItems: "flex-start", fontSize: "0.875rem", lineHeight: 1.5 }}>
+                  // Wrap each segment row in a button so clicking it seeks the audio player
+                  // to the segment's start time (Feature 2). Disabled when no audio is retained.
+                  <button
+                    key={i}
+                    type="button"
+                    disabled={!audioUrl}
+                    aria-label={t("output.seek_to_segment_aria", { time: `${mins}:${secs}` })}
+                    onClick={() => {
+                      const audio = audioRef.current;
+                      if (!audio) return;
+                      audio.currentTime = seg.start;
+                      void audio.play();
+                    }}
+                    style={{
+                      display: "flex",
+                      gap: "0.75rem",
+                      alignItems: "flex-start",
+                      fontSize: "0.875rem",
+                      lineHeight: 1.5,
+                      background: isActive ? "var(--color-accent-subtle, rgba(59,130,246,0.08))" : "none",
+                      border: "none",
+                      borderLeft: isActive ? "3px solid var(--color-accent, #3b82f6)" : "3px solid transparent",
+                      borderRadius: 0,
+                      cursor: audioUrl ? "pointer" : "default",
+                      padding: "0.15rem 0.25rem",
+                      textAlign: "left",
+                      width: "100%",
+                    }}
+                  >
                     <span style={{ fontFamily: "monospace", color: "var(--color-text-subtle)", minWidth: "3.5rem", flexShrink: 0, paddingTop: "0.05rem" }}>
                       {mins}:{secs}
                     </span>
                     <span style={{ fontFamily: "monospace", color: "var(--color-text-muted)", minWidth: "6.5rem", flexShrink: 0, paddingTop: "0.05rem" }}>
                       {displaySpeaker}
                     </span>
-                    <span style={{ flex: 1 }}>{seg.text}</span>
-                  </div>
+                    <span style={{ flex: 1 }}>
+                      {/* Apply search term highlighting on segment text (Feature 6) */}
+                      {searchQuery ? highlightTerms(seg.text, searchQuery) : seg.text}
+                    </span>
+                  </button>
                 );
               })}
             </div>
           ) : (
             <pre className="transcript" style={{ marginTop: "0.5rem", fontFamily: "inherit" }}>
-              {applyNames(meeting.transcript, speakerNames)}
+              {/* Apply search highlighting and speaker name substitution on plain transcript */}
+              {searchQuery
+                ? highlightTerms(applyNames(meeting.transcript, speakerNames), searchQuery)
+                : applyNames(meeting.transcript, speakerNames)}
             </pre>
           )}
         </details>
@@ -704,9 +845,39 @@ export function OutputView({ meeting, onBack, onMeetingUpdated }: OutputViewProp
       {output.participants_mentioned.length > 0 && (
         <section className="output-section">
           <h2>{t("output.participants")}</h2>
-          <p style={{ marginTop: "0.25rem" }}>
-            {output.participants_mentioned.join(", ")}
-          </p>
+          {/* Participant names are rendered as clickable buttons when a filter callback is provided
+              so the user can jump to a history view filtered to all meetings with that person (Feature 7). */}
+          {onFilterByParticipant ? (
+            <>
+              <p style={{ marginTop: "0.25rem", marginBottom: "0.35rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+                {t("output.participants_filter_hint")}
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
+                {output.participants_mentioned.map((name) => (
+                  <button
+                    key={name}
+                    type="button"
+                    onClick={() => onFilterByParticipant(name)}
+                    style={{
+                      fontSize: "0.875rem",
+                      padding: "0.2rem 0.6rem",
+                      borderRadius: "999px",
+                      border: "1px solid var(--color-accent, #3b82f6)",
+                      background: "transparent",
+                      color: "var(--color-accent, #3b82f6)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p style={{ marginTop: "0.25rem" }}>
+              {output.participants_mentioned.join(", ")}
+            </p>
+          )}
         </section>
       )}
     </div>

@@ -161,6 +161,135 @@ pub async fn get_meeting_stats(
     storage.get_meeting_stats().await
 }
 
+/// Returns meeting summaries whose `created_at` falls within the given date range (inclusive).
+/// Both `from_date` and `to_date` are ISO-8601 date strings ("YYYY-MM-DD").
+/// Results are newest-first, capped at 200 rows; pagination is disabled for date queries.
+#[tauri::command]
+pub async fn list_meetings_by_date_range(
+    from_date: String,
+    to_date: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let storage = state.storage.lock().await;
+    storage
+        .list_meetings_by_date_range(&from_date, &to_date)
+        .await
+}
+
+/// Returns a flat list of all action items across all non-deleted meetings, sorted by priority
+/// then recency. Each entry includes the source meeting id and title for provenance.
+#[tauri::command]
+pub async fn get_all_action_items(
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let storage = state.storage.lock().await;
+    storage.get_all_action_items().await
+}
+
+/// Returns meeting summaries where the given participant name appears in `participants_mentioned`.
+/// Enables the participant-based history filter in the frontend.
+#[tauri::command]
+pub async fn list_meetings_by_participant(
+    name: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let storage = state.storage.lock().await;
+    storage.list_meetings_by_participant(&name).await
+}
+
+/// Re-generates the Ollama summary for all non-deleted meetings matching `meeting_type`
+/// (or all meetings when `meeting_type` is `None`). Progress is sequential to avoid
+/// saturating the local Ollama instance. Returns `{ "regenerated": u32, "errors": u32 }`.
+/// Concurrent calls are independent — the caller should disable the button while running.
+#[tauri::command]
+pub async fn bulk_regenerate_meetings(
+    meeting_type: Option<String>,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    // Collect the IDs of meetings to re-summarize without holding the storage lock for the
+    // entire duration of the Ollama calls (which can take minutes for many meetings).
+    let meeting_ids: Vec<(String, String)> = {
+        let storage = state.storage.lock().await;
+        let raw = if let Some(ref mt) = meeting_type {
+            storage.list_meetings_by_type(mt).await?
+        } else {
+            // list_meetings() returns a plain JSON array (legacy helper, up to 100 rows).
+            storage.list_meetings().await?
+        };
+        let meetings: Vec<serde_json::Value> =
+            serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+        meetings
+            .into_iter()
+            .filter_map(|m| {
+                let id = m["id"].as_str()?.to_string();
+                let mt = m["meeting_type"].as_str()?.to_string();
+                Some((id, mt))
+            })
+            .collect()
+    };
+
+    let (ollama_url, llm_model, ollama_timeout_secs) = {
+        let storage = state.storage.lock().await;
+        storage.get_summarizer_config().await?
+    };
+
+    let summarizer =
+        crate::summarize::Summarizer::new(Some(ollama_url), Some(llm_model), Some(ollama_timeout_secs))?
+            .with_retry_config(3, 2000);
+
+    if !summarizer.check_available().await {
+        return Err("Ollama not reachable — is `ollama serve` running?".to_string());
+    }
+
+    let mut regenerated: u32 = 0;
+    let mut errors: u32 = 0;
+
+    for (id, mt) in &meeting_ids {
+        // Load transcript and optional custom template per meeting.
+        let (transcript, custom_template) = {
+            let storage = state.storage.lock().await;
+            let json_opt = storage.get_meeting(id).await?;
+            let json = match json_opt {
+                Some(j) => j,
+                None => { errors += 1; continue; }
+            };
+            let meeting: crate::types::Meeting =
+                match serde_json::from_str(&json) {
+                    Ok(m) => m,
+                    Err(_) => { errors += 1; continue; }
+                };
+            let custom = if mt == "custom" {
+                storage.get_setting("custom_prompt_template").await.ok().flatten()
+            } else {
+                None
+            };
+            (meeting.transcript, custom)
+        };
+
+        let system_prompt = crate::templates::get_system_prompt_with_custom(
+            mt,
+            custom_template.as_deref(),
+        );
+
+        match summarizer.summarize(&transcript, &system_prompt, mt).await {
+            Ok(new_output) => {
+                let storage = state.storage.lock().await;
+                match storage.update_meeting_output(id, &new_output).await {
+                    Ok(_) => regenerated += 1,
+                    Err(_) => errors += 1,
+                }
+            }
+            Err(_) => errors += 1,
+        }
+    }
+
+    serde_json::to_string(&serde_json::json!({
+        "regenerated": regenerated,
+        "errors": errors,
+    }))
+    .map_err(|e| e.to_string())
+}
+
 /// Persists the speaker label → display name mapping for a meeting.
 /// The transcript text is not modified — names are applied at the display layer only,
 /// so FTS search continues to match original speaker labels.
