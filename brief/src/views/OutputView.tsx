@@ -753,9 +753,10 @@ export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onF
                   type="text"
                   value={speakerNames[id] ?? ""}
                   placeholder={t("output.speaker_name_placeholder")}
+                  maxLength={50}
                   onChange={(e) => {
-                    // Update local state immediately for responsive UX.
-                    const updated = { ...speakerNamesRef.current, [id]: e.target.value };
+                    // Enforce max 50 chars; trim leading/trailing whitespace on persist (blur handler).
+                    const updated = { ...speakerNamesRef.current, [id]: e.target.value.slice(0, 50) };
                     setSpeakerNames(updated);
                   }}
                   onBlur={() => {

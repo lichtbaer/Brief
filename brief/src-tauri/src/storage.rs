@@ -165,6 +165,21 @@ impl Storage {
             .map_err(|e| format!("Migration failed (segments_json): {}", e))?;
         }
 
+        // Add indexes for common query patterns (idempotent — IF NOT EXISTS).
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_meetings_created_at ON meetings(created_at DESC) WHERE deleted_at IS NULL",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Index migration failed (created_at): {}", e))?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_meetings_meeting_type ON meetings(meeting_type) WHERE deleted_at IS NULL",
+        )
+        .execute(&self.pool)
+        .await
+        .map_err(|e| format!("Index migration failed (meeting_type): {}", e))?;
+
         // Upgrades: users who already have meetings should not see first-run onboarding.
         let meeting_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM meetings")
             .fetch_one(&self.pool)
@@ -328,8 +343,9 @@ impl Storage {
     }
 
     /// Returns meeting summaries (newest first, page size 20), without full transcript.
-    /// Uses cursor-based pagination: pass `before` (a `created_at` ISO timestamp) to fetch
-    /// the next page. Returns `{ "meetings": [...], "has_more": bool, "next_cursor": string | null }`.
+    /// Uses composite cursor-based pagination: `before` is `"created_at|id"` so that meetings
+    /// with identical timestamps are not skipped.
+    /// Returns `{ "meetings": [...], "has_more": bool, "next_cursor": string | null }`.
     pub async fn list_meetings_paginated(
         &self,
         before: Option<&str>,
@@ -339,13 +355,22 @@ impl Storage {
         let fetch_limit = i64::from(limit) + 1;
 
         let rows = if let Some(cursor) = before {
+            // Composite cursor: "created_at|id" — split to get both parts.
+            let (cursor_ts, cursor_id) = if let Some(pos) = cursor.rfind('|') {
+                (&cursor[..pos], &cursor[pos + 1..])
+            } else {
+                // Backwards compatibility: plain timestamp cursor from older frontend.
+                (cursor, "")
+            };
             sqlx::query(
                 "SELECT id, created_at, meeting_type, title, output_json, tags_json, duration_seconds
-                 FROM meetings WHERE deleted_at IS NULL AND created_at < ?
-                 ORDER BY created_at DESC
-                 LIMIT ?",
+                 FROM meetings WHERE deleted_at IS NULL
+                   AND (created_at < ?1 OR (created_at = ?1 AND id < ?2))
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT ?3",
             )
-            .bind(cursor)
+            .bind(cursor_ts)
+            .bind(cursor_id)
             .bind(fetch_limit)
             .fetch_all(&self.pool)
             .await
@@ -354,7 +379,7 @@ impl Storage {
             sqlx::query(
                 "SELECT id, created_at, meeting_type, title, output_json, tags_json, duration_seconds
                  FROM meetings WHERE deleted_at IS NULL
-                 ORDER BY created_at DESC
+                 ORDER BY created_at DESC, id DESC
                  LIMIT ?",
             )
             .bind(fetch_limit)
@@ -369,10 +394,14 @@ impl Storage {
 
         let meetings: Vec<serde_json::Value> = page.iter().map(row_to_meeting_summary).collect();
 
-        // The cursor for the next page is the `created_at` of the last returned row.
+        // Composite cursor: "created_at|id" of the last returned row.
         let next_cursor: serde_json::Value = if has_more {
             page.last()
-                .map(|r| serde_json::Value::String(r.get::<String, _>("created_at")))
+                .map(|r| {
+                    let ts = r.get::<String, _>("created_at");
+                    let id = r.get::<String, _>("id");
+                    serde_json::Value::String(format!("{}|{}", ts, id))
+                })
                 .unwrap_or(serde_json::Value::Null)
         } else {
             serde_json::Value::Null
@@ -512,6 +541,18 @@ impl Storage {
     /// Tags are validated: each tag must be non-empty and at most 50 characters;
     /// a maximum of 20 tags is allowed per meeting.
     pub async fn update_meeting_tags(&self, id: &str, tags: &[String]) -> Result<(), String> {
+        // Backend validation (defense in depth — frontend also validates).
+        if tags.len() > 20 {
+            return Err("Too many tags (maximum 20)".to_string());
+        }
+        for tag in tags {
+            if tag.trim().is_empty() {
+                return Err("Tag must not be empty".to_string());
+            }
+            if tag.len() > 50 {
+                return Err(format!("Tag too long (max 50 chars): '{}'", tag));
+            }
+        }
         let tags_json = serde_json::to_string(tags).map_err(|e| e.to_string())?;
         let affected = sqlx::query(
             "UPDATE meetings SET tags_json = ? WHERE id = ? AND deleted_at IS NULL",
@@ -937,6 +978,54 @@ impl Storage {
             "weekly": weekly,
         }))
         .map_err(|e| e.to_string())
+    }
+
+    /// Soft-deletes all meetings created before the given ISO timestamp and removes them from FTS.
+    /// Returns the number of meetings deleted.
+    pub async fn delete_meetings_before(&self, before: &str) -> Result<u32, String> {
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| format!("Transaction begin failed: {}", e))?;
+
+        // Collect IDs to remove from FTS before soft-deleting.
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM meetings WHERE deleted_at IS NULL AND created_at < ?",
+        )
+        .bind(before)
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|e| format!("delete_meetings_before select failed: {}", e))?;
+
+        if ids.is_empty() {
+            return Ok(0);
+        }
+
+        let affected = sqlx::query(
+            "UPDATE meetings SET deleted_at = datetime('now') WHERE deleted_at IS NULL AND created_at < ?",
+        )
+        .bind(before)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| format!("delete_meetings_before failed: {}", e))?
+        .rows_affected() as u32;
+
+        // Remove from FTS index.
+        for id in &ids {
+            sqlx::query("DELETE FROM meetings_fts WHERE id = ?")
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| format!("FTS delete failed: {}", e))?;
+        }
+
+        tx.commit()
+            .await
+            .map_err(|e| format!("Commit failed: {}", e))?;
+
+        log::info!("Bulk-deleted {} meetings before {}", affected, before);
+        Ok(affected)
     }
 }
 

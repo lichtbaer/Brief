@@ -176,8 +176,12 @@ impl Transcriber {
                     "Transcription timed out after {}s for audio={}",
                     self.timeout_secs, audio_str
                 );
-                let _ = child.kill();
-                let _ = child.wait();
+                if let Err(e) = child.kill() {
+                    log::error!("Failed to kill timed-out WhisperX process: {}", e);
+                }
+                if let Err(e) = child.wait() {
+                    log::error!("Failed to reap timed-out WhisperX process: {}", e);
+                }
                 let _ = stdout_handle.join();
                 let _ = stderr_handle.join();
                 return Err(TRANSCRIPTION_TIMEOUT_ERROR.to_string());
@@ -218,8 +222,12 @@ impl Transcriber {
                     std::thread::sleep(Duration::from_millis(200));
                 }
                 Err(e) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
+                    if let Err(kill_err) = child.kill() {
+                        log::error!("Failed to kill WhisperX process after error: {}", kill_err);
+                    }
+                    if let Err(wait_err) = child.wait() {
+                        log::error!("Failed to reap WhisperX process after error: {}", wait_err);
+                    }
                     let _ = stdout_handle.join();
                     let _ = stderr_handle.join();
                     return Err(format!("WhisperX-Prozessfehler: {}", e));

@@ -161,6 +161,17 @@ pub async fn get_meeting_stats(
     storage.get_meeting_stats().await
 }
 
+/// Soft-deletes all meetings created before the given ISO timestamp.
+/// Returns the count of deleted meetings.
+#[tauri::command]
+pub async fn delete_meetings_before(
+    before: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<u32, String> {
+    let storage = state.storage.lock().await;
+    storage.delete_meetings_before(&before).await
+}
+
 /// Returns meeting summaries whose `created_at` falls within the given date range (inclusive).
 /// Both `from_date` and `to_date` are ISO-8601 date strings ("YYYY-MM-DD").
 /// Results are newest-first, capped at 200 rows; pagination is disabled for date queries.

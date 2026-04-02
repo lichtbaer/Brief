@@ -38,6 +38,9 @@ pub struct AudioRecorder {
     join: Option<JoinHandle<()>>,
     /// RMS of the most-recently captured block, updated by the CPAL callback. Used for the UI level meter.
     pub last_rms: Arc<Mutex<f32>>,
+    /// Set to `true` when the recording buffer hits `MAX_BUFFER_SAMPLES` and frames are being dropped.
+    /// Checked by the frontend via `get_audio_level` to warn the user.
+    pub buffer_overflow: Arc<Mutex<bool>>,
 }
 
 impl AudioRecorder {
@@ -51,6 +54,7 @@ impl AudioRecorder {
             stop_tx: None,
             join: None,
             last_rms: Arc::new(Mutex::new(0.0)),
+            buffer_overflow: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -67,13 +71,14 @@ impl AudioRecorder {
         // Only the concrete sample type `$T` differs between arms; everything else is identical.
         // The callback also computes per-block RMS and stores it in `$rms` for the level meter.
         macro_rules! build_stream_for_format {
-            ($device:expr, $config:expr, $buf:expr, $channels:expr, $err_fn:expr, $rms:expr, $T:ty) => {{
+            ($device:expr, $config:expr, $buf:expr, $channels:expr, $err_fn:expr, $rms:expr, $overflow:expr, $T:ty) => {{
                 let buf = Arc::clone(&$buf);
                 let rms_cell = Arc::clone(&$rms);
+                let overflow_cell = Arc::clone(&$overflow);
                 $device.build_input_stream(
                     $config,
                     move |data: &[$T], _: &_| {
-                        push_mono_frames(data, $channels, &buf);
+                        push_mono_frames(data, $channels, &buf, &overflow_cell);
                         // Compute RMS of the incoming block for the level meter (O(block) not O(total)).
                         if !data.is_empty() {
                             let sum_sq: f32 = data.iter()
@@ -113,6 +118,7 @@ impl AudioRecorder {
         let sample_format = supported.sample_format();
         let buffer = Arc::clone(&self.buffer);
         let last_rms = Arc::clone(&self.last_rms);
+        let buffer_overflow = Arc::clone(&self.buffer_overflow);
 
         let (stop_tx, stop_rx) = mpsc::channel::<()>();
 
@@ -120,16 +126,16 @@ impl AudioRecorder {
             let err_fn = |err: cpal::StreamError| log::error!("Audio stream error: {err}");
 
             let stream_result = match sample_format {
-                cpal::SampleFormat::I8 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, i8),
-                cpal::SampleFormat::I16 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, i16),
-                cpal::SampleFormat::I32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, i32),
-                cpal::SampleFormat::I64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, i64),
-                cpal::SampleFormat::U8 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, u8),
-                cpal::SampleFormat::U16 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, u16),
-                cpal::SampleFormat::U32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, u32),
-                cpal::SampleFormat::U64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, u64),
-                cpal::SampleFormat::F32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, f32),
-                cpal::SampleFormat::F64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, f64),
+                cpal::SampleFormat::I8 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, i8),
+                cpal::SampleFormat::I16 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, i16),
+                cpal::SampleFormat::I32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, i32),
+                cpal::SampleFormat::I64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, i64),
+                cpal::SampleFormat::U8 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, u8),
+                cpal::SampleFormat::U16 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, u16),
+                cpal::SampleFormat::U32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, u32),
+                cpal::SampleFormat::U64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, u64),
+                cpal::SampleFormat::F32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, f32),
+                cpal::SampleFormat::F64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, f64),
                 f => {
                     log::error!("Unsupported audio sample format: {f}");
                     return;
@@ -198,7 +204,12 @@ impl AudioRecorder {
     }
 }
 
-fn push_mono_frames<T>(input: &[T], channels: usize, buffer: &Arc<Mutex<Vec<f32>>>)
+fn push_mono_frames<T>(
+    input: &[T],
+    channels: usize,
+    buffer: &Arc<Mutex<Vec<f32>>>,
+    overflow_flag: &Arc<Mutex<bool>>,
+)
 where
     T: Sample,
     f32: FromSample<T>,
@@ -207,6 +218,13 @@ where
     if let Ok(mut buf) = buffer.lock() {
         // Drop incoming frames if the buffer has reached the safety cap.
         if buf.len() >= MAX_BUFFER_SAMPLES {
+            // Signal overflow so the frontend can warn the user.
+            if let Ok(mut flag) = overflow_flag.lock() {
+                if !*flag {
+                    log::warn!("Audio buffer overflow: recording capped at ~4 hours");
+                    *flag = true;
+                }
+            }
             return;
         }
         for frame in input.chunks(ch) {
@@ -281,19 +299,22 @@ mod tests {
     #[test]
     fn push_mono_frames_stereo_averages_channels() {
         let buffer = Arc::new(Mutex::new(Vec::new()));
+        let overflow = Arc::new(Mutex::new(false));
         // Stereo frame: left=0.0, right=1.0 → mono=0.5
         let input: Vec<f32> = vec![0.0, 1.0];
-        push_mono_frames(&input, 2, &buffer);
+        push_mono_frames(&input, 2, &buffer, &overflow);
         let buf = buffer.lock().unwrap();
         assert_eq!(buf.len(), 1);
         assert!((buf[0] - 0.5).abs() < f32::EPSILON);
+        assert!(!*overflow.lock().unwrap());
     }
 
     #[test]
     fn push_mono_frames_mono_passthrough() {
         let buffer = Arc::new(Mutex::new(Vec::new()));
+        let overflow = Arc::new(Mutex::new(false));
         let input: Vec<f32> = vec![0.3, 0.7];
-        push_mono_frames(&input, 1, &buffer);
+        push_mono_frames(&input, 1, &buffer, &overflow);
         let buf = buffer.lock().unwrap();
         assert_eq!(buf.len(), 2);
         assert!((buf[0] - 0.3).abs() < f32::EPSILON);
@@ -301,17 +322,19 @@ mod tests {
     }
 
     #[test]
-    fn push_mono_frames_respects_buffer_cap() {
+    fn push_mono_frames_respects_buffer_cap_and_sets_overflow() {
         let buffer = Arc::new(Mutex::new(Vec::with_capacity(0)));
+        let overflow = Arc::new(Mutex::new(false));
         // Fill to exactly the cap.
         {
             let mut buf = buffer.lock().unwrap();
             buf.resize(MAX_BUFFER_SAMPLES, 0.0);
         }
-        // Further samples should be dropped.
+        // Further samples should be dropped and overflow flag set.
         let input: Vec<f32> = vec![1.0; 100];
-        push_mono_frames(&input, 1, &buffer);
+        push_mono_frames(&input, 1, &buffer, &overflow);
         let buf = buffer.lock().unwrap();
         assert_eq!(buf.len(), MAX_BUFFER_SAMPLES);
+        assert!(*overflow.lock().unwrap(), "overflow flag should be set when buffer is full");
     }
 }

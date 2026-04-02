@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import i18n from "../i18n";
 import type { AppSettingsSnapshot, PersistedSettings, SettingDefaults } from "../types";
@@ -21,6 +21,8 @@ const FALLBACK_DEFAULTS: PersistedSettings = {
   ui_language: "de",
   whisperx_timeout_secs: "900",
   ollama_timeout_secs: "300",
+  audio_device: "default",
+  custom_prompt_template: "",
 };
 
 /** Merges raw DB settings with defaults from the Rust backend (single source of truth). */
@@ -43,6 +45,9 @@ export function mergeSettings(raw: Record<string, string>, defaults?: SettingDef
 
 /** @deprecated Use `mergeSettings` with backend defaults instead. Re-exported for test compatibility. */
 export const DEFAULTS = FALLBACK_DEFAULTS;
+
+/** Debounce delay (ms) for text input settings to avoid DB writes on every keystroke. */
+const DEBOUNCE_MS = 500;
 
 /**
  * Persists app and AI settings (Ollama URL, models, WhisperX timeout, retain audio, UI language) via `get_all_settings` / `update_setting`.
@@ -80,6 +85,33 @@ export function SettingsView() {
       .then(setAudioDevices)
       .catch(() => setAudioDevices([]));
   }, []);
+
+  // Refresh audio device list when the view gains focus (e.g. USB mic plugged in after app start).
+  useEffect(() => {
+    const refreshDevices = () => {
+      void invoke<string[]>("list_audio_devices")
+        .then(setAudioDevices)
+        .catch(() => {});
+    };
+    window.addEventListener("focus", refreshDevices);
+    return () => window.removeEventListener("focus", refreshDevices);
+  }, []);
+
+  // Debounced text input persistence — avoids DB writes on every keystroke.
+  const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const updateSettingDebounced = useCallback(
+    (key: keyof PersistedSettings, value: string) => {
+      // Update local state immediately for responsive UX.
+      setSettings((prev) => (prev ? { ...prev, [key]: value } : prev));
+      // Clear any pending timer for this key.
+      if (debounceTimers.current[key]) clearTimeout(debounceTimers.current[key]);
+      debounceTimers.current[key] = setTimeout(() => {
+        void updateSetting(key, value);
+      }, DEBOUNCE_MS);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   const updateSetting = async (key: keyof PersistedSettings, value: string) => {
     try {
@@ -154,7 +186,7 @@ export function SettingsView() {
             id="ollama-url"
             className="form-input"
             value={settings.ollama_url}
-            onChange={(e) => void updateSetting("ollama_url", e.target.value)}
+            onChange={(e) => updateSettingDebounced("ollama_url", e.target.value)}
             autoComplete="off"
             spellCheck={false}
             style={{ maxWidth: "24rem" }}
@@ -169,7 +201,7 @@ export function SettingsView() {
             id="llm-model"
             className="form-input"
             value={settings.llm_model}
-            onChange={(e) => void updateSetting("llm_model", e.target.value)}
+            onChange={(e) => updateSettingDebounced("llm_model", e.target.value)}
             autoComplete="off"
             spellCheck={false}
             style={{ maxWidth: "24rem" }}
@@ -214,7 +246,7 @@ export function SettingsView() {
             className="form-input"
             value={settings.custom_prompt_template ?? ""}
             placeholder={t("settings.custom_prompt_placeholder")}
-            onChange={(e) => void updateSetting("custom_prompt_template", e.target.value)}
+            onChange={(e) => updateSettingDebounced("custom_prompt_template", e.target.value)}
             style={{ width: "100%", minHeight: "10rem", resize: "vertical", fontSize: "0.85rem", fontFamily: "monospace" }}
           />
           <small style={{ display: "block", marginTop: "0.35rem", color: "var(--color-text-muted)", fontSize: "0.8rem" }}>

@@ -163,6 +163,32 @@ pub async fn update_setting(
         storage.set_setting("meeting_language", &trimmed).await?;
         return Ok(());
     }
+    if key == "ollama_url" {
+        // Validate URL scheme: only http/https allowed to prevent file:// or other scheme abuse.
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            match url::Url::parse(trimmed) {
+                Ok(parsed) => {
+                    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+                        return Err(
+                            AppError::ValidationError(
+                                "Ollama URL must use http:// or https:// scheme".into(),
+                            )
+                            .into(),
+                        );
+                    }
+                }
+                Err(_) => {
+                    return Err(
+                        AppError::ValidationError("Invalid URL format".into()).into(),
+                    );
+                }
+            }
+        }
+        let storage = state.storage.lock().await;
+        storage.set_setting("ollama_url", trimmed).await?;
+        return Ok(());
+    }
     if key == "custom_prompt_template" {
         let trimmed = value.trim();
         // Allow empty string to clear the custom template; non-empty must be at least 20 chars.
