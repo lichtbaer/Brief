@@ -79,7 +79,18 @@
     "filter_by_type": "Nach Typ filtern",
     "type_filter_clear": "Typfilter löschen",
     "delete_meeting": "Löschen",
-    "delete_meeting_aria": "Meeting löschen: {{title}}"
+    "delete_meeting_aria": "Meeting löschen: {{title}}",
+    "filter_from": "Von",
+    "filter_to": "Bis",
+    "date_filter_clear": "Datumsfilter löschen",
+    "filter_by_participant": "Meetings mit: {{name}}",
+    "participant_filter_clear": "Personenfilter löschen",
+    "tab_meetings": "Meetings",
+    "tab_action_items": "Action Items",
+    "action_items_title": "Alle Action Items",
+    "action_items_loading": "Lade Action Items…",
+    "action_items_empty": "Keine Action Items vorhanden.",
+    "action_items_from_meeting": "aus Meeting:"
   },
   "output": {
     "back": "Zurück",
@@ -122,7 +133,11 @@
     "follow_up_edit": "Bearbeiten",
     "follow_up_save": "Speichern",
     "follow_up_cancel": "Abbrechen",
-    "follow_up_save_error": "Entwurf konnte nicht gespeichert werden — bitte erneut versuchen."
+    "follow_up_save_error": "Entwurf konnte nicht gespeichert werden — bitte erneut versuchen.",
+    "stale_analysis_warning": "Diese Auswertung wurde mit einer älteren Vorlage erstellt. Neu erstellen für das aktuelle Format.",
+    "stale_analysis_dismiss": "Schließen",
+    "participants_filter_hint": "Klick auf einen Namen, um alle Meetings dieser Person zu sehen.",
+    "seek_to_segment_aria": "Zu Zeitpunkt {{time}} springen"
   },
   "settings": {
     "title": "Einstellungen",
@@ -152,7 +167,14 @@
     "audio_device_hint": "Wähle das Eingabegerät für Aufnahmen. Änderungen gelten ab der nächsten Aufnahme.",
     "custom_prompt_label": "Benutzerdefinierter Prompt (Meeting-Typ: Custom)",
     "custom_prompt_placeholder": "Systemanweisung für den LLM bei Custom-Meetings…",
-    "custom_prompt_hint": "Wird verwendet wenn der Meeting-Typ auf 'Benutzerdefiniert' gesetzt ist. Leer lassen für den Standard-Consulting-Prompt. Mindestens 20 Zeichen."
+    "custom_prompt_hint": "Wird verwendet wenn der Meeting-Typ auf 'Benutzerdefiniert' gesetzt ist. Leer lassen für den Standard-Consulting-Prompt. Mindestens 20 Zeichen.",
+    "bulk_regenerate_section": "Batch-Aktionen",
+    "bulk_regenerate_label": "Zusammenfassungen aller Meetings neu erstellen",
+    "bulk_regenerate_hint": "Erstellt die KI-Auswertung aller gespeicherten Meetings neu. Nützlich nach Anpassung des Custom-Prompts oder einem Template-Update.",
+    "bulk_regenerate_btn": "Jetzt neu erstellen",
+    "bulk_regenerate_running": "Wird verarbeitet…",
+    "bulk_regenerate_done": "{{count}} Meeting(s) neu erstellt, {{errors}} Fehler.",
+    "bulk_regenerate_type_label": "Nur Meetings des Typs (leer = alle)"
   },
   "stats": {
     "title": "Statistiken",
