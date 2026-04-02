@@ -4,6 +4,12 @@ import { useTranslation } from "react-i18next";
 import i18n from "../i18n";
 import type { AppSettingsSnapshot, PersistedSettings, SettingDefaults } from "../types";
 
+/** Result shape returned by the `bulk_regenerate_meetings` Tauri command. */
+interface BulkRegenResult {
+  regenerated: number;
+  errors: number;
+}
+
 // Hardcoded fallback only used until the backend command resolves (first render).
 const FALLBACK_DEFAULTS: PersistedSettings = {
   ollama_url: "http://localhost:11434",
@@ -55,6 +61,10 @@ export function SettingsView() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   // Audio device list — loaded once on mount; empty if CPAL enumeration fails.
   const [audioDevices, setAudioDevices] = useState<string[]>([]);
+  // Bulk re-summarization state (Feature 5).
+  const [bulkRegenRunning, setBulkRegenRunning] = useState(false);
+  const [bulkRegenResult, setBulkRegenResult] = useState<BulkRegenResult | null>(null);
+  const [bulkRegenMeetingType, setBulkRegenMeetingType] = useState("");
 
   useEffect(() => {
     void Promise.all([
@@ -383,6 +393,76 @@ export function SettingsView() {
           <small style={{ display: "block", marginTop: "0.35rem", color: "var(--color-text-muted)", fontSize: "0.8rem" }}>
             {t("settings.retention_days_hint")}
           </small>
+        </div>
+      </section>
+
+      {/* Batch actions section — allows re-running Ollama on all stored meetings (Feature 5) */}
+      <section style={{ marginTop: "2rem" }}>
+        <h2 style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--color-text-subtle)", fontWeight: 600, marginBottom: "1rem" }}>
+          {t("settings.bulk_regenerate_section")}
+        </h2>
+
+        <div className="form-group">
+          <label className="form-label" htmlFor="bulk-regen-type">
+            {t("settings.bulk_regenerate_type_label")}
+          </label>
+          <select
+            id="bulk-regen-type"
+            className="form-select"
+            value={bulkRegenMeetingType}
+            onChange={(e) => setBulkRegenMeetingType(e.target.value)}
+            style={{ maxWidth: "18rem" }}
+            disabled={bulkRegenRunning}
+          >
+            <option value="">{t("meeting_types.consulting")} + {t("meeting_types.legal")} + {t("meeting_types.internal")} + {t("meeting_types.custom")}</option>
+            <option value="consulting">{t("meeting_types.consulting")}</option>
+            <option value="legal">{t("meeting_types.legal")}</option>
+            <option value="internal">{t("meeting_types.internal")}</option>
+            <option value="custom">{t("meeting_types.custom")}</option>
+          </select>
+        </div>
+
+        <div className="form-group">
+          <p style={{ marginBottom: "0.5rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
+            {t("settings.bulk_regenerate_hint")}
+          </p>
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon"
+            disabled={bulkRegenRunning}
+            onClick={() => {
+              setBulkRegenResult(null);
+              setBulkRegenRunning(true);
+              void invoke<string>("bulk_regenerate_meetings", {
+                meetingType: bulkRegenMeetingType || null,
+              })
+                .then((raw) => {
+                  setBulkRegenResult(JSON.parse(raw) as BulkRegenResult);
+                })
+                .catch((e: unknown) => {
+                  setSettingsError(String(e));
+                  setTimeout(() => setSettingsError(null), 5000);
+                })
+                .finally(() => setBulkRegenRunning(false));
+            }}
+          >
+            {bulkRegenRunning ? (
+              <><span className="spinner spinner-dark" />{t("settings.bulk_regenerate_running")}</>
+            ) : (
+              t("settings.bulk_regenerate_btn")
+            )}
+          </button>
+          {bulkRegenResult !== null && (
+            <p
+              role="status"
+              style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "var(--color-text-muted)" }}
+            >
+              {t("settings.bulk_regenerate_done", {
+                count: bulkRegenResult.regenerated,
+                errors: bulkRegenResult.errors,
+              })}
+            </p>
+          )}
         </div>
       </section>
     </section>

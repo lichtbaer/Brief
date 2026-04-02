@@ -25,18 +25,36 @@ export default function App() {
   const [orphanRecording, setOrphanRecording] =
     useState<OrphanedRecording | null>(null);
 
+  // Search query that caused the current meeting to be opened — passed to OutputView
+  // so the transcript highlights the matched terms (Feature 6).
+  const [meetingSearchQuery, setMeetingSearchQuery] = useState<string | undefined>(undefined);
+
+  // Participant filter for the history view — set when the user clicks a participant name
+  // in OutputView and navigates back to history (Feature 7).
+  const [participantFilter, setParticipantFilter] = useState<string | undefined>(undefined);
+
   const handleMeetingDone = (meeting: Meeting) => {
+    setMeetingSearchQuery(undefined);
     setCurrentMeeting(meeting);
     setCurrentView("output");
   };
 
-  const handleOpenMeeting = (meeting: Meeting) => {
+  const handleOpenMeeting = (meeting: Meeting, fromSearchQuery?: string) => {
+    setMeetingSearchQuery(fromSearchQuery);
     setCurrentMeeting(meeting);
     setCurrentView("output");
   };
 
   const handleOutputBack = () => {
-    setCurrentView("recording");
+    // Return to history when coming from a search or participant filter so context is preserved.
+    setCurrentView(meetingSearchQuery || participantFilter ? "history" : "recording");
+  };
+
+  /** Called when the user clicks a participant name in OutputView — navigates to history filtered by that person. */
+  const handleFilterByParticipant = (name: string) => {
+    setParticipantFilter(name);
+    setCurrentMeeting(null);
+    setCurrentView("history");
   };
 
   useEffect(() => {
@@ -160,10 +178,16 @@ export default function App() {
               meeting={currentMeeting}
               onBack={handleOutputBack}
               onMeetingUpdated={setCurrentMeeting}
+              searchQuery={meetingSearchQuery}
+              onFilterByParticipant={handleFilterByParticipant}
             />
           )}
           {currentView === "history" && (
-            <HistoryView onOpenMeeting={handleOpenMeeting} />
+            <HistoryView
+              onOpenMeeting={handleOpenMeeting}
+              initialParticipantFilter={participantFilter}
+              onParticipantFilterConsumed={() => setParticipantFilter(undefined)}
+            />
           )}
           {currentView === "settings" && <SettingsView />}
         </div>

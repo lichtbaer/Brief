@@ -36,6 +36,8 @@ export interface SettingDefaults {
   /** Ollama HTTP request timeout in seconds. */
   ollama_timeout_secs: string;
   processing_step_hint_secs: number;
+  /** Current prompt template version from the backend. Used to detect stale analyses. */
+  template_version: string;
 }
 
 /** Mirrors `AppSettingsSnapshot` from the Tauri backend. */
@@ -121,6 +123,17 @@ export interface DiarizedSegment {
   start: number;
   end: number;
   text: string;
+}
+
+/** One cross-meeting action item entry returned by `get_all_action_items`. */
+export interface CrossMeetingActionItem {
+  meeting_id: string;
+  meeting_title: string;
+  meeting_created_at: string;
+  description: string | null;
+  owner: string | null;
+  due_date: string | null;
+  priority: "high" | "medium" | "low" | null;
 }
 
 const MEETING_TYPES: MeetingType[] = ["consulting", "legal", "internal", "custom"];

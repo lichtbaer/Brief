@@ -799,6 +799,109 @@ impl Storage {
         Ok(())
     }
 
+    /// Returns meeting summaries whose `created_at` falls within [from_date, to_date] (inclusive).
+    /// Both parameters are ISO-8601 date strings (e.g. "2024-01-15"). Results are newest-first,
+    /// capped at 200 rows — pagination is not needed for typical date-range queries.
+    pub async fn list_meetings_by_date_range(
+        &self,
+        from_date: &str,
+        to_date: &str,
+    ) -> Result<String, String> {
+        // Append time boundaries so the full day is covered regardless of the stored timestamp precision.
+        let from = format!("{}T00:00:00", from_date);
+        let to = format!("{}T23:59:59", to_date);
+
+        let rows = sqlx::query(
+            "SELECT id, created_at, meeting_type, title, output_json, tags_json, duration_seconds
+             FROM meetings
+             WHERE deleted_at IS NULL
+               AND created_at >= ?1
+               AND created_at <= ?2
+             ORDER BY created_at DESC
+             LIMIT 200",
+        )
+        .bind(&from)
+        .bind(&to)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("list_meetings_by_date_range failed: {}", e))?;
+
+        let meetings: Vec<serde_json::Value> = rows.iter().map(row_to_meeting_summary).collect();
+        serde_json::to_string(&meetings).map_err(|e| e.to_string())
+    }
+
+    /// Aggregates all action items from every non-deleted meeting into a flat list.
+    /// Each entry carries the meeting id, title, creation date, and the action item fields
+    /// (description, owner, due_date, priority). Sorted by priority (high → medium → low) then
+    /// by meeting date (newest first). Capped at 500 rows to avoid excessive memory use.
+    pub async fn get_all_action_items(&self) -> Result<String, String> {
+        let rows = sqlx::query(
+            "SELECT
+               m.id          AS meeting_id,
+               m.title       AS meeting_title,
+               m.created_at  AS meeting_created_at,
+               json_extract(item.value, '$.description') AS description,
+               json_extract(item.value, '$.owner')       AS owner,
+               json_extract(item.value, '$.due_date')    AS due_date,
+               json_extract(item.value, '$.priority')    AS priority
+             FROM meetings m, json_each(m.output_json, '$.action_items') AS item
+             WHERE m.deleted_at IS NULL
+             ORDER BY
+               CASE json_extract(item.value, '$.priority')
+                 WHEN 'high'   THEN 0
+                 WHEN 'medium' THEN 1
+                 ELSE 2
+               END,
+               m.created_at DESC
+             LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("get_all_action_items failed: {}", e))?;
+
+        let items: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|r| {
+                json!({
+                    "meeting_id":         r.get::<String, _>("meeting_id"),
+                    "meeting_title":      r.get::<String, _>("meeting_title"),
+                    "meeting_created_at": r.get::<String, _>("meeting_created_at"),
+                    "description":        r.get::<Option<String>, _>("description"),
+                    "owner":              r.get::<Option<String>, _>("owner"),
+                    "due_date":           r.get::<Option<String>, _>("due_date"),
+                    "priority":           r.get::<Option<String>, _>("priority"),
+                })
+            })
+            .collect();
+
+        serde_json::to_string(&items).map_err(|e| e.to_string())
+    }
+
+    /// Returns meeting summaries where the given participant name appears in
+    /// `output_json.participants_mentioned` (exact match via `json_each`).
+    /// This lets the frontend show all meetings involving a specific person by clicking
+    /// their name in the participants section of a meeting output.
+    pub async fn list_meetings_by_participant(&self, name: &str) -> Result<String, String> {
+        let rows = sqlx::query(
+            "SELECT id, created_at, meeting_type, title, output_json, tags_json, duration_seconds
+             FROM meetings
+             WHERE deleted_at IS NULL
+               AND EXISTS (
+                 SELECT 1 FROM json_each(output_json, '$.participants_mentioned')
+                 WHERE value = ?1
+               )
+             ORDER BY created_at DESC
+             LIMIT 100",
+        )
+        .bind(name)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| format!("list_meetings_by_participant failed: {}", e))?;
+
+        let meetings: Vec<serde_json::Value> = rows.iter().map(row_to_meeting_summary).collect();
+        serde_json::to_string(&meetings).map_err(|e| e.to_string())
+    }
+
     /// Aggregates meeting statistics for the dashboard: total counts, duration, type breakdown,
     /// total action items, and weekly meeting counts (last 12 weeks).
     pub async fn get_meeting_stats(&self) -> Result<String, String> {

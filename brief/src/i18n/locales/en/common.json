@@ -84,7 +84,18 @@
     "bulk_delete_label": "Delete meetings before date:",
     "bulk_delete_btn": "Delete all",
     "bulk_deleting": "Deleting…",
-    "bulk_delete_confirm": "Really delete all meetings before {{date}}? This action cannot be undone."
+    "bulk_delete_confirm": "Really delete all meetings before {{date}}? This action cannot be undone.",
+    "filter_from": "From",
+    "filter_to": "To",
+    "date_filter_clear": "Clear date filter",
+    "filter_by_participant": "Meetings with: {{name}}",
+    "participant_filter_clear": "Clear person filter",
+    "tab_meetings": "Meetings",
+    "tab_action_items": "Action Items",
+    "action_items_title": "All Action Items",
+    "action_items_loading": "Loading action items…",
+    "action_items_empty": "No action items found.",
+    "action_items_from_meeting": "from meeting:"
   },
   "output": {
     "back": "Back",
@@ -127,7 +138,11 @@
     "follow_up_edit": "Edit",
     "follow_up_save": "Save",
     "follow_up_cancel": "Cancel",
-    "follow_up_save_error": "Could not save draft — please try again."
+    "follow_up_save_error": "Could not save draft — please try again.",
+    "stale_analysis_warning": "This analysis was generated with an older template. Regenerate to get the current format.",
+    "stale_analysis_dismiss": "Dismiss",
+    "participants_filter_hint": "Click a name to see all meetings involving this person.",
+    "seek_to_segment_aria": "Jump to {{time}}"
   },
   "settings": {
     "title": "Settings",
@@ -157,7 +172,14 @@
     "audio_device_hint": "Choose the input device for recordings. Changes take effect on the next recording.",
     "custom_prompt_label": "Custom prompt (meeting type: Custom)",
     "custom_prompt_placeholder": "System instruction for the LLM when recording a Custom meeting…",
-    "custom_prompt_hint": "Used when the meeting type is set to 'Custom'. Leave empty to use the default consulting prompt. Minimum 20 characters."
+    "custom_prompt_hint": "Used when the meeting type is set to 'Custom'. Leave empty to use the default consulting prompt. Minimum 20 characters.",
+    "bulk_regenerate_section": "Batch actions",
+    "bulk_regenerate_label": "Regenerate summaries for all meetings",
+    "bulk_regenerate_hint": "Re-runs the AI analysis on all stored meetings. Useful after updating the custom prompt or after a template version upgrade.",
+    "bulk_regenerate_btn": "Regenerate now",
+    "bulk_regenerate_running": "Processing…",
+    "bulk_regenerate_done": "{{count}} meeting(s) regenerated, {{errors}} errors.",
+    "bulk_regenerate_type_label": "Only meetings of type (empty = all)"
   },
   "stats": {
     "title": "Statistics",

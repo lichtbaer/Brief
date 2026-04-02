@@ -51,6 +51,9 @@ pub struct SettingDefaults {
     pub ollama_timeout_secs: &'static str,
     /// Exposed so the frontend step-hint timer uses the same constant.
     pub processing_step_hint_secs: u64,
+    /// Current prompt template version — used by the frontend to show a stale-analysis warning
+    /// when a stored meeting was generated with an older template version.
+    pub template_version: &'static str,
 }
 
 /// Canonical defaults instance.
@@ -65,4 +68,5 @@ pub const DEFAULTS: SettingDefaults = SettingDefaults {
     whisperx_timeout_secs: WHISPERX_TIMEOUT_SECS,
     ollama_timeout_secs: OLLAMA_TIMEOUT_SECS,
     processing_step_hint_secs: PROCESSING_STEP_HINT_SECS,
+    template_version: crate::templates::TEMPLATE_VERSION,
 };

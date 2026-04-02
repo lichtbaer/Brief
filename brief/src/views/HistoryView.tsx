@@ -3,7 +3,7 @@ import type { MouseEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StatsPanel } from "../components/StatsPanel";
-import { isMeeting, type Meeting } from "../types";
+import { isMeeting, type CrossMeetingActionItem, type Meeting } from "../types";
 
 export interface MeetingSummary {
   id: string;
@@ -24,8 +24,13 @@ interface ListMeetingsResponse {
 }
 
 interface HistoryViewProps {
-  /** Invoked with a full `Meeting` after `get_meeting` when the user opens a list item. */
-  onOpenMeeting: (meeting: Meeting) => void;
+  /** Invoked with a full `Meeting` after `get_meeting` when the user opens a list item.
+   *  The optional second argument carries the current search query for transcript highlighting. */
+  onOpenMeeting: (meeting: Meeting, searchQuery?: string) => void;
+  /** When set on mount, immediately activates the participant filter (set by clicking a name in OutputView). */
+  initialParticipantFilter?: string;
+  /** Called once the component has consumed the initialParticipantFilter so the parent can clear it. */
+  onParticipantFilterConsumed?: () => void;
 }
 
 export function formatMeetingDate(iso: string, locale: string): string {
@@ -58,13 +63,18 @@ function SkeletonCards() {
   );
 }
 
+/** Active view tab in the history panel — "meetings" or the cross-meeting action item dashboard. */
+type HistoryTab = "meetings" | "action_items";
+
 /**
- * Lists past meetings (newest first) with optional FTS search and tag filtering.
+ * Lists past meetings (newest first) with optional FTS search, tag, type, date-range, and
+ * participant filtering. Also provides an action item dashboard tab (Feature 1).
  * Loads meetings in pages of 20 via cursor-based pagination.
  *
  * @param props.onOpenMeeting — parent handles navigation to detail/output.
+ * @param props.initialParticipantFilter — pre-selects a participant filter on mount (Feature 7).
  */
-export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
+export function HistoryView({ onOpenMeeting, initialParticipantFilter, onParticipantFilterConsumed }: HistoryViewProps) {
   const { t, i18n } = useTranslation();
   const [meetings, setMeetings] = useState<MeetingSummary[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -74,8 +84,21 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [activeTagFilter, setActiveTagFilter] = useState<string | null>(null);
   const [activeTypeFilter, setActiveTypeFilter] = useState<string | null>(null);
+  // Date-range filter state (ISO date strings, e.g. "2024-01-15") (Feature 3).
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  // Participant filter — set from OutputView participant click or cleared via chip (Feature 7).
+  const [activeParticipantFilter, setActiveParticipantFilter] = useState<string | null>(
+    initialParticipantFilter ?? null
+  );
   const [openError, setOpenError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // Tab for the history panel (Feature 1).
+  const [activeTab, setActiveTab] = useState<HistoryTab>("meetings");
+  // Action item dashboard state (Feature 1).
+  const [actionItems, setActionItems] = useState<CrossMeetingActionItem[]>([]);
+  const [actionItemsLoading, setActionItemsLoading] = useState(false);
+  const [actionItemPriorityFilter, setActionItemPriorityFilter] = useState<string | null>(null);
 
   // Track whether we are in search mode or tag-filter mode so pagination resets correctly.
   const searchActiveRef = useRef(false);
@@ -85,6 +108,9 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
     setLoadError(null);
     setActiveTagFilter(null);
     setActiveTypeFilter(null);
+    setActiveParticipantFilter(null);
+    setDateFrom("");
+    setDateTo("");
     searchActiveRef.current = false;
     try {
       const result = await invoke<string>("list_meetings", { before: undefined });
@@ -102,6 +128,31 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
   useEffect(() => {
     void loadMeetings();
   }, [loadMeetings]);
+
+  // When an initial participant filter arrives (from clicking a name in OutputView),
+  // apply it on mount and notify the parent so it doesn't re-apply on future renders (Feature 7).
+  useEffect(() => {
+    if (initialParticipantFilter) {
+      void applyFilters(searchQuery, activeTagFilter, activeTypeFilter, dateFrom, dateTo, initialParticipantFilter);
+      onParticipantFilterConsumed?.();
+    }
+    // Only run on mount — intentionally not tracking all deps to avoid re-triggering.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Load action items when the dashboard tab is first opened (Feature 1).
+  useEffect(() => {
+    if (activeTab !== "action_items") return;
+    setActionItemsLoading(true);
+    void invoke<string>("get_all_action_items")
+      .then((raw) => {
+        setActionItems(JSON.parse(raw) as CrossMeetingActionItem[]);
+      })
+      .catch((e: unknown) => {
+        setLoadError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => setActionItemsLoading(false));
+  }, [activeTab]);
 
   /** Appends the next page of results to the existing meeting list. */
   const loadMore = async () => {
@@ -121,15 +172,67 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
   };
 
   /**
-   * Fetches and displays meetings matching the search query, tag filter, and type filter.
-   * Priority: if a search query is present, FTS is used and tag/type are applied client-side.
-   * If only tag or type filter is active, the dedicated backend query is used.
-   * Called whenever any filter or search query changes.
+   * Fetches and displays meetings matching the search query, tag filter, type filter,
+   * date range filter, and participant filter.
+   * Priority: if a search query is present, FTS is used and secondary filters are applied client-side.
+   * If only tag, type, date, or participant filter is active, the dedicated backend query is used.
    */
-  const applyFilters = async (q: string, tag: string | null, type: string | null) => {
+  const applyFilters = async (
+    q: string,
+    tag: string | null,
+    type: string | null,
+    from: string,
+    to: string,
+    participant: string | null,
+  ) => {
     // Minimum search length: single-char queries produce too many low-quality FTS matches.
     const SEARCH_MIN_LENGTH = 2;
     const trimmed = q.trim();
+
+    // Date-range filter: both From and To must be set for the dedicated backend query.
+    if (trimmed.length < SEARCH_MIN_LENGTH && from && to) {
+      searchActiveRef.current = false;
+      setHasMore(false);
+      setNextCursor(null);
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const result = await invoke<string>("list_meetings_by_date_range", {
+          fromDate: from,
+          toDate: to,
+        });
+        let results = JSON.parse(result) as MeetingSummary[];
+        if (tag) results = results.filter((m) => m.tags?.includes(tag));
+        if (type) results = results.filter((m) => m.meeting_type === type);
+        setMeetings(results);
+      } catch (e) {
+        setLoadError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Participant filter: dedicated backend query (Feature 7).
+    if (trimmed.length < SEARCH_MIN_LENGTH && participant) {
+      searchActiveRef.current = false;
+      setHasMore(false);
+      setNextCursor(null);
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const result = await invoke<string>("list_meetings_by_participant", { name: participant });
+        let results = JSON.parse(result) as MeetingSummary[];
+        if (tag) results = results.filter((m) => m.tags?.includes(tag));
+        if (type) results = results.filter((m) => m.meeting_type === type);
+        setMeetings(results);
+      } catch (e) {
+        setLoadError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
 
     if (trimmed.length < SEARCH_MIN_LENGTH) {
       if (tag) {
@@ -181,11 +284,13 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
     setLoadError(null);
     try {
       const result = await invoke<string>("search_meetings", { query: q });
-      const ftsResults = JSON.parse(result) as MeetingSummary[];
-      let results = ftsResults;
-      // Apply tag and type filters client-side on top of FTS results.
+      let results = JSON.parse(result) as MeetingSummary[];
+      // Apply secondary filters client-side on top of FTS results.
       if (tag) results = results.filter((m) => m.tags?.includes(tag));
       if (type) results = results.filter((m) => m.meeting_type === type);
+      // Participant filter in FTS mode: participant info is not in MeetingSummary, so the
+      // FTS results are returned as-is. The participant filter is handled as a primary filter
+      // (processed before the FTS branch) when no search query is active.
       setMeetings(results);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : String(e));
@@ -196,33 +301,58 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
 
   const handleSearch = (q: string) => {
     setSearchQuery(q);
-    void applyFilters(q, activeTagFilter, activeTypeFilter);
+    void applyFilters(q, activeTagFilter, activeTypeFilter, dateFrom, dateTo, activeParticipantFilter);
   };
 
   /** Toggles a tag filter on/off; combined with any active search query and type filter. */
   const handleTagFilter = (tag: string) => {
     const newTag = activeTagFilter === tag ? null : tag;
     setActiveTagFilter(newTag);
-    void applyFilters(searchQuery, newTag, activeTypeFilter);
+    void applyFilters(searchQuery, newTag, activeTypeFilter, dateFrom, dateTo, activeParticipantFilter);
   };
 
   /** Clears the tag filter while preserving any active search and type filter. */
   const clearTagFilter = () => {
     setActiveTagFilter(null);
-    void applyFilters(searchQuery, null, activeTypeFilter);
+    void applyFilters(searchQuery, null, activeTypeFilter, dateFrom, dateTo, activeParticipantFilter);
   };
 
   /** Toggles a meeting-type filter on/off; combined with any active search and tag filter. */
   const handleTypeFilter = (type: string) => {
     const newType = activeTypeFilter === type ? null : type;
     setActiveTypeFilter(newType);
-    void applyFilters(searchQuery, activeTagFilter, newType);
+    void applyFilters(searchQuery, activeTagFilter, newType, dateFrom, dateTo, activeParticipantFilter);
   };
 
   /** Clears the type filter while preserving any active search and tag filter. */
   const clearTypeFilter = () => {
     setActiveTypeFilter(null);
-    void applyFilters(searchQuery, activeTagFilter, null);
+    void applyFilters(searchQuery, activeTagFilter, null, dateFrom, dateTo, activeParticipantFilter);
+  };
+
+  /** Applies the date-range filter; combined with tag and type filters (Feature 3). */
+  const handleDateFilter = (from: string, to: string) => {
+    setDateFrom(from);
+    setDateTo(to);
+    if (from && to) {
+      void applyFilters(searchQuery, activeTagFilter, activeTypeFilter, from, to, activeParticipantFilter);
+    } else if (!from && !to) {
+      // Both cleared — reload without date filter.
+      void applyFilters(searchQuery, activeTagFilter, activeTypeFilter, "", "", activeParticipantFilter);
+    }
+  };
+
+  /** Clears the date-range filter. */
+  const clearDateFilter = () => {
+    setDateFrom("");
+    setDateTo("");
+    void applyFilters(searchQuery, activeTagFilter, activeTypeFilter, "", "", activeParticipantFilter);
+  };
+
+  /** Clears the participant filter (Feature 7). */
+  const clearParticipantFilter = () => {
+    setActiveParticipantFilter(null);
+    void applyFilters(searchQuery, activeTagFilter, activeTypeFilter, dateFrom, dateTo, null);
   };
 
   // Derive the date locale from the current UI language so dates respect the
@@ -251,7 +381,8 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
       const json = await invoke<string>("get_meeting", { id });
       const meeting = JSON.parse(json) as unknown;
       if (!isMeeting(meeting)) throw new Error("Invalid meeting data");
-      onOpenMeeting(meeting);
+      // Pass the current search query so OutputView can highlight matched terms (Feature 6).
+      onOpenMeeting(meeting, searchQuery.trim().length >= 2 ? searchQuery : undefined);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setOpenError(message);
@@ -285,6 +416,11 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
   const allTags = [...new Set(meetings.flatMap((m) => m.tags ?? []))];
   const allTypes = [...new Set(meetings.map((m) => m.meeting_type))];
 
+  // Derive filtered action items when a priority filter chip is active (Feature 1).
+  const filteredActionItems = actionItemPriorityFilter
+    ? actionItems.filter((a) => a.priority === actionItemPriorityFilter)
+    : actionItems;
+
   return (
     <section aria-label={t("nav.history")} style={{ maxWidth: "40rem" }}>
       <h1 style={{ fontSize: "1.4rem", fontWeight: 700, marginBottom: "1rem" }}>
@@ -293,6 +429,127 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
 
       {/* Statistics dashboard — collapsed by default, expands on click */}
       <StatsPanel />
+
+      {/* Tab bar: Meetings vs Action Item Dashboard (Feature 1) */}
+      <div style={{ display: "flex", gap: "0", marginBottom: "1rem", borderBottom: "2px solid var(--color-border, #e5e7eb)" }}>
+        {(["meetings", "action_items"] as HistoryTab[]).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            style={{
+              padding: "0.4rem 1rem",
+              border: "none",
+              background: "none",
+              cursor: "pointer",
+              fontSize: "0.875rem",
+              fontWeight: activeTab === tab ? 700 : 400,
+              color: activeTab === tab ? "var(--color-accent, #3b82f6)" : "var(--color-text-muted)",
+              borderBottom: activeTab === tab ? "2px solid var(--color-accent, #3b82f6)" : "2px solid transparent",
+              marginBottom: "-2px",
+            }}
+          >
+            {t(`history.tab_${tab}`)}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "action_items" ? (
+        // ── Action Item Dashboard (Feature 1) ──────────────────────────────────
+        <div>
+          <h2 style={{ fontSize: "1rem", fontWeight: 600, marginBottom: "0.75rem" }}>
+            {t("history.action_items_title")}
+          </h2>
+
+          {/* Priority filter chips */}
+          <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginBottom: "0.75rem", alignItems: "center" }}>
+            {(["high", "medium", "low"] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setActionItemPriorityFilter(actionItemPriorityFilter === p ? null : p)}
+                style={{
+                  fontSize: "0.75rem",
+                  padding: "0.15rem 0.55rem",
+                  borderRadius: "999px",
+                  border: "1px solid",
+                  cursor: "pointer",
+                  background: actionItemPriorityFilter === p ? "var(--color-accent, #3b82f6)" : "transparent",
+                  color: actionItemPriorityFilter === p ? "#fff" : "var(--color-text-muted)",
+                  borderColor: actionItemPriorityFilter === p ? "var(--color-accent, #3b82f6)" : "var(--color-border, #d1d5db)",
+                }}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+
+          {actionItemsLoading ? (
+            <p style={{ color: "var(--color-text-muted)" }}>{t("history.action_items_loading")}</p>
+          ) : filteredActionItems.length === 0 ? (
+            <p style={{ color: "var(--color-text-muted)" }}>{t("history.action_items_empty")}</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+              {filteredActionItems.map((item, i) => (
+                <div
+                  key={i}
+                  className="action-item"
+                  style={{
+                    padding: "0.75rem",
+                    border: "1px solid var(--color-border, #e5e7eb)",
+                    borderRadius: "var(--radius)",
+                    background: "var(--color-surface)",
+                  }}
+                >
+                  <p style={{ margin: "0 0 0.35rem", lineHeight: 1.5 }}>{item.description}</p>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", fontSize: "0.8rem", color: "var(--color-text-muted)", alignItems: "center" }}>
+                    {item.owner && <span>👤 {item.owner}</span>}
+                    {item.due_date && <span>📅 {item.due_date}</span>}
+                    {item.priority && (
+                      <span
+                        style={{
+                          padding: "0.1rem 0.45rem",
+                          borderRadius: "var(--radius-sm)",
+                          border: "1px solid",
+                          fontWeight: 600,
+                          fontSize: "0.75rem",
+                          ...(item.priority === "high"
+                            ? { backgroundColor: "#fecaca", color: "#991b1b", borderColor: "#f87171" }
+                            : item.priority === "medium"
+                            ? { backgroundColor: "#fef9c3", color: "#854d0e", borderColor: "#facc15" }
+                            : { backgroundColor: "#dcfce7", color: "#166534", borderColor: "#4ade80" }),
+                        }}
+                      >
+                        {item.priority}
+                      </span>
+                    )}
+                    <span style={{ marginLeft: "auto" }}>
+                      {t("history.action_items_from_meeting")}{" "}
+                      <button
+                        type="button"
+                        onClick={() => void openMeeting(item.meeting_id)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          color: "var(--color-accent, #3b82f6)",
+                          fontSize: "0.8rem",
+                          padding: 0,
+                          textDecoration: "underline",
+                        }}
+                      >
+                        {item.meeting_title}
+                      </button>
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        // ── Meetings tab (original content) ─────────────────────────────────────
+        <>
 
       <input
         type="search"
@@ -328,6 +585,78 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
               {bulkDeleting ? t("history.bulk_deleting") : t("history.bulk_delete_btn")}
             </button>
           )}
+        </div>
+      )}
+
+      {/* Date-range filter row (Feature 3) */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center", marginBottom: "0.75rem" }}>
+        <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)" }}>{t("history.filter_from")}:</span>
+        <input
+          type="date"
+          className="form-input"
+          value={dateFrom}
+          onChange={(e) => handleDateFilter(e.target.value, dateTo)}
+          style={{ fontSize: "0.8rem", padding: "0.15rem 0.5rem", maxWidth: "10rem" }}
+          aria-label={t("history.filter_from")}
+        />
+        <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)" }}>{t("history.filter_to")}:</span>
+        <input
+          type="date"
+          className="form-input"
+          value={dateTo}
+          onChange={(e) => handleDateFilter(dateFrom, e.target.value)}
+          style={{ fontSize: "0.8rem", padding: "0.15rem 0.5rem", maxWidth: "10rem" }}
+          aria-label={t("history.filter_to")}
+        />
+        {(dateFrom || dateTo) && (
+          <button
+            type="button"
+            onClick={clearDateFilter}
+            style={{
+              fontSize: "0.75rem",
+              padding: "0.15rem 0.55rem",
+              borderRadius: "999px",
+              border: "1px solid var(--color-border, #d1d5db)",
+              cursor: "pointer",
+              background: "transparent",
+              color: "var(--color-text-muted)",
+            }}
+          >
+            {t("history.date_filter_clear")} ×
+          </button>
+        )}
+      </div>
+
+      {/* Participant filter chip — shown when navigating from an OutputView participant click (Feature 7) */}
+      {activeParticipantFilter && (
+        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.75rem" }}>
+          <span
+            style={{
+              fontSize: "0.8rem",
+              padding: "0.15rem 0.6rem",
+              borderRadius: "999px",
+              border: "1px solid var(--color-accent, #3b82f6)",
+              background: "var(--color-accent, #3b82f6)",
+              color: "#fff",
+            }}
+          >
+            {t("history.filter_by_participant", { name: activeParticipantFilter })}
+          </span>
+          <button
+            type="button"
+            onClick={clearParticipantFilter}
+            style={{
+              fontSize: "0.75rem",
+              padding: "0.15rem 0.55rem",
+              borderRadius: "999px",
+              border: "1px solid var(--color-border, #d1d5db)",
+              cursor: "pointer",
+              background: "transparent",
+              color: "var(--color-text-muted)",
+            }}
+          >
+            {t("history.participant_filter_clear")} ×
+          </button>
         </div>
       )}
 
@@ -573,8 +902,8 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
             </p>
           )}
 
-          {/* Load more — only shown when not searching and more pages exist */}
-          {hasMore && !searchQuery && !activeTagFilter && !activeTypeFilter && (
+          {/* Load more — only shown when not searching and no secondary filters are active */}
+          {hasMore && !searchQuery && !activeTagFilter && !activeTypeFilter && !dateFrom && !dateTo && !activeParticipantFilter && (
             <button
               type="button"
               className="btn btn-ghost"
@@ -590,6 +919,8 @@ export function HistoryView({ onOpenMeeting }: HistoryViewProps) {
             </button>
           )}
         </div>
+      )}
+        </>
       )}
     </section>
   );
