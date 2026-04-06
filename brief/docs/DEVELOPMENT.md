@@ -1,147 +1,63 @@
-# Brief — Developer Documentation
+# Brief — Developer documentation (legacy single page)
 
-## Architecture Overview
+This file is kept for deep links and external references. **Prefer the MkDocs site** (start at [index.md](index.md)) for navigation, search, and up-to-date command lists.
 
-Brief is a Tauri 2 desktop application combining a Rust backend with a React/TypeScript frontend.
+## Architecture overview
 
-### Stack
+Brief is a Tauri 2 desktop application: Rust backend + React/TypeScript frontend. See [Architecture](architecture.md) for the current stack table and data-flow diagram.
 
-- **Frontend:** React 18, TypeScript 5, Vite 5, Zustand, TanStack Query, i18next
-- **Backend:** Rust, Tauri 2
-- **AI Pipeline:** WhisperX (Python subprocess) for transcription + diarization, Ollama (llama3.1:8b) for analysis
-- **Storage:** SQLite + SQLCipher (encrypted local database)
-
-### Data Flow
+### Data flow (text)
 
 ```
 Microphone → CPAL (Rust) → WAV file (temp)
     → whisperx_runner.py (Python subprocess)
-    → JSON segments {speaker, start, end, text}
+    → JSON segments { speaker, start, end, text }
     → process_meeting Tauri command
-    → Ollama (default `llama3.1:8b`; on ≤8 GB RAM auto `llama3.2:3b` unless overridden — SMA-367)
+    → Ollama (default local; configurable URL)
     → MeetingOutput (stored in SQLCipher DB)
 ```
 
-### Tauri Commands (Backend Contract)
+## Tauri commands
 
-| Command | Input | Output | Status |
-|---|---|---|---|
-| `start_recording` | `meeting_type: String` | `session_id: String` | ✅ BRIEF-002 |
-| `stop_recording` | `session_id: String` | `audio_path: String` | ✅ BRIEF-002 |
-| `process_meeting` | `session_id, audio_path` | JSON with segments | ✅ BRIEF-003 |
-| `get_meeting` | `id: String` | Meeting JSON | ✅ BRIEF-004 |
-| `get_app_settings_snapshot` | — | `AppSettingsSnapshot` (memory, LLM, onboarding flags) | ✅ SMA-367 |
-| `set_llm_model` | `model: String` | — | ✅ SMA-367 |
-| `dismiss_low_ram_onboarding` | — | — | ✅ SMA-367 |
+The authoritative list is in [Tauri commands](tauri-commands.md) (generated from `brief/src-tauri/src/lib.rs` registration).
 
 ## LLM models (8 GB / MacBook-class hardware)
 
-At startup, Brief reads installed RAM (`sysctl hw.memsize` on macOS, `/proc/meminfo` on Linux for dev/CI) and, unless the user has set a manual override, writes the recommended Ollama model id into `settings.llm_model` (`llama3.2:3b` when RAM ≤ 8 GB, otherwise `llama3.1:8b`). Users still run `ollama pull …` themselves.
+At startup, Brief reads installed RAM and, unless the user has set a manual override, writes the recommended Ollama model id into `settings.llm_model` (`llama3.2:3b` when RAM ≤ 8 GB, otherwise `llama3.1:8b`). Users still run `ollama pull …` themselves.
 
-**Template quality (llama3.2:3b):** Smoke-tested with the same JSON-output templates as `llama3.1:8b`; expect slightly lower precision on long or ambiguous transcripts. Re-run meeting-specific template QA if prompts change (BRIEF-P2-002).
+## Local setup
 
-## Local Setup
+See [Setup](setup.md) and [WhisperX & models](whisperx.md).
 
-### Prerequisites
-
-- Rust (stable): https://rustup.rs
-- Node.js 20+
-- Python 3.10+
-- Ollama: https://ollama.ai — pull `llama3.1:8b`
-- macOS: `brew install sqlcipher`
-
-### WhisperX Setup
-
-```bash
-cd brief/whisperx_runner
-bash setup.sh
-```
-
-### Run in Development
-
-```bash
-cd brief
-npm install
-npm run tauri dev
-```
-
-## Linux Setup
-
-### Voraussetzungen
-
-```bash
-# Ubuntu/Debian
-sudo apt-get install -y \
-  libwebkit2gtk-4.1-dev \
-  libssl-dev \
-  pkg-config \
-  libgtk-3-dev \
-  libasound2-dev
-
-# Rust
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-
-# Node.js 20
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
-```
-
-### WhisperX Setup
-
-Identisch mit macOS:
-
-```bash
-cd brief/whisperx_runner && bash setup.sh
-```
-
-### Build
-
-```bash
-cd brief && npm install && npm run tauri dev
-```
-
-### Type Check
-
-```bash
-npm run typecheck       # tsc --noEmit
-cargo build             # Rust compile check
-```
-
-Run these from `brief/` for npm. For Rust, use `brief/src-tauri` as the working directory (e.g. `cd brief/src-tauri && cargo build`).
-
-## Project Structure
+## Project structure
 
 ```
 brief/
 ├── src/                    # React frontend
-│   ├── i18n/               # Internationalization (i18next)
-│   ├── views/              # Main views
-│   ├── components/         # Shared components
-│   ├── store/              # Zustand state
-│   └── types/index.ts      # Shared TypeScript types
-├── src-tauri/src/          # Rust backend
-│   ├── lib.rs              # Tauri commands
-│   ├── audio.rs            # CPAL microphone capture
-│   ├── transcribe.rs       # WhisperX subprocess
-│   └── storage.rs          # SQLCipher database
-└── whisperx_runner/        # Python AI pipeline
+│   ├── i18n/
+│   ├── views/
+│   ├── components/
+│   └── types/index.ts
+├── src-tauri/src/
+│   ├── lib.rs
+│   ├── commands/           # Tauri command handlers
+│   ├── audio.rs
+│   ├── transcribe.rs
+│   ├── storage.rs
+│   └── ...
+└── whisperx_runner/
     ├── whisperx_runner.py
     └── setup.sh
 ```
 
 ## Conventions
 
-* **Code comments:** English only
-* **User-facing strings:** Via i18n keys (src/i18n/locales/)
-* **Error handling:** No panics in Tauri commands — always return `Result<T, String>`
-* **Privacy:** No network calls except localhost (Ollama, WhisperX)
-* **Audio files:** Deleted after transcription by default (opt-in retention)
+See [Conventions](conventions.md).
 
-## Key Decisions (ADRs)
+## Key decisions (ADRs)
 
-* **ADR-009:** Tauri/Rust stack instead of NexCore standard (Python/FastAPI) — privacy + native desktop requirement
-* **ADR-010:** WhisperX as transcription backend — Ollama no longer provides official Whisper model (March 2026)
+See [ADRs](adrs.md).
 
-## Known Issues & Debt
+## Known issues & debt
 
 See Linear project "Brief" for open tickets and technical debt.

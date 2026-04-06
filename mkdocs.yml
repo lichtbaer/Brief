@@ -1,0 +1,49 @@
+# MkDocs site for Brief (sources live under brief/docs/).
+site_name: Brief — Developer Documentation
+site_description: Local-first meeting intelligence — Tauri, Rust, React, WhisperX.
+docs_dir: brief/docs
+site_dir: site
+strict: true
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.expand
+    - navigation.sections
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+
+markdown_extensions:
+  - admonition
+  - pymdownx.superfences
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Architecture: architecture.md
+  - Setup: setup.md
+  - WhisperX & models: whisperx.md
+  - Tauri commands: tauri-commands.md
+  - Testing & CI: testing-ci.md
+  - Conventions: conventions.md
+  - ADRs: adrs.md
+  - "Legacy (single page)": DEVELOPMENT.md
+
+extra:
+  generator: false
