@@ -2,11 +2,22 @@
 
 Tauri 2 + React + TypeScript.
 
+## Entwicklerdokumentation
+
+Aus dem **Repository-Root** (nicht aus `brief/`):
+
+```bash
+python3 -m pip install -r requirements-docs.txt
+python3 -m mkdocs serve
+```
+
+Strukturierte Doku (Architektur, alle Tauri-Commands, CI): Quellen unter [`docs/`](docs/index.md) — gebaute Version mit Suche und Navigation über MkDocs.
+
 ## Voraussetzungen
 
 - Rust (stable)
 - Node.js 20+
-- Ollama (https://ollama.ai) mit `whisper` und `llama3.1:8b` Modellen
+- Ollama (https://ollama.ai) mit passenden Chat-Modellen (z. B. `llama3.1:8b`; bei wenig RAM siehe Doku zu `llama3.2:3b`)
 - **SQLCipher** (native Bibliothek; wird für die verschlüsselte SQLite-DB gebunden):
   - macOS: `brew install sqlcipher`
   - Debian/Ubuntu: `libsqlcipher-dev` (oder System-SQLCipher mit passenden `pkg-config`-Pfaden)

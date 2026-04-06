@@ -107,20 +107,24 @@ brief/
 ├── whisperx_runner/            # Python AI pipeline
 │   ├── whisperx_runner.py      # Transcription + diarization script
 │   └── setup.sh                # venv + pip install
-└── docs/
-    └── DEVELOPMENT.md          # Full developer documentation
+└── docs/                       # MkDocs sources (build from repo root: mkdocs.yml)
+    ├── index.md
+    ├── tauri-commands.md       # Full invoke API (keep in sync with lib.rs)
+    └── DEVELOPMENT.md          # Legacy single-page overview
 ```
 
 ---
 
 ## Tauri Commands
 
-| Command | Description | File |
+Handlers live in `src-tauri/src/commands/` and are registered in `lib.rs`. The **authoritative list** is in `docs/tauri-commands.md` (MkDocs). Legacy summary:
+
+| Command | Description | Module |
 |---|---|---|
-| `start_recording(meeting_type)` | Start microphone capture, returns `session_id` | `audio.rs` |
-| `stop_recording(session_id)` | Stop capture, write WAV to temp, returns `audio_path` | `audio.rs` |
-| `process_meeting(session_id, audio_path)` | Run WhisperX, returns JSON with segments | `transcribe.rs` |
-| `get_meeting(id)` | Load meeting from DB, returns Meeting JSON | `storage.rs` |
+| `start_recording(meeting_type)` | Start microphone capture, returns `session_id` | `commands/recording.rs` |
+| `stop_recording(session_id)` | Stop capture, write WAV to temp, returns `audio_path` | `commands/recording.rs` |
+| `process_meeting(...)` | Run WhisperX + summarization, persist meeting | `commands/recording.rs` |
+| `get_meeting(id)` | Load meeting from DB, returns Meeting JSON | `commands/meetings.rs` |
 
 ---
 
