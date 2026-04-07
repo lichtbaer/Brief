@@ -7,7 +7,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { useCallback, useState } from "react";
 
-import { safeExportBaseName } from "../views/OutputView";
+import { safeExportBaseName } from "../utils/exportUtils";
 
 export type ExportFormat = "markdown" | "pdf" | "audio" | "csv";
 

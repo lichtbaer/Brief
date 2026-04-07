@@ -46,21 +46,29 @@ pub struct Transcriber {
 }
 
 fn default_runner_script() -> String {
+    // Priority 1: explicit override for development/testing — takes precedence over all other paths.
     if let Ok(p) = std::env::var("BRIEF_WHISPERX_RUNNER") {
+        log::info!("WhisperX runner: using BRIEF_WHISPERX_RUNNER override: {p}");
         return p;
     }
+    // Priority 2: bundled app resources — the production path for packaged macOS/Linux builds.
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             let bundled = parent.join("../Resources/whisperx_runner/whisperx_runner.py");
             if bundled.exists() {
-                return bundled.to_string_lossy().to_string();
+                let p = bundled.to_string_lossy().to_string();
+                log::info!("WhisperX runner: using bundled resource: {p}");
+                return p;
             }
         }
     }
-    Path::new(env!("CARGO_MANIFEST_DIR"))
+    // Priority 3: source-tree fallback for `cargo run` / unit tests outside the packaged bundle.
+    let dev_path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../whisperx_runner/whisperx_runner.py")
         .to_string_lossy()
-        .to_string()
+        .to_string();
+    log::info!("WhisperX runner: using dev fallback path: {dev_path}");
+    dev_path
 }
 
 /// Prefer the venv created by `whisperx_runner/setup.sh` (`.venv/` next to the runner script).
@@ -129,7 +137,10 @@ impl Transcriber {
 
         log::info!(
             "Starting transcription: audio={} language={} model={} timeout={}s",
-            audio_str, self.language, self.model_size, self.timeout_secs
+            audio_str,
+            self.language,
+            self.model_size,
+            self.timeout_secs
         );
 
         let mut child = Command::new(&self.python_bin)
@@ -174,7 +185,8 @@ impl Transcriber {
             if start.elapsed() >= timeout {
                 log::warn!(
                     "Transcription timed out after {}s for audio={}",
-                    self.timeout_secs, audio_str
+                    self.timeout_secs,
+                    audio_str
                 );
                 if let Err(e) = child.kill() {
                     log::error!("Failed to kill timed-out WhisperX process: {}", e);
@@ -319,7 +331,10 @@ mod tests {
         let error_json = r#"{"error": "File not found: /tmp/missing.wav"}"#;
         let as_success = serde_json::from_str::<WhisperXOutput>(error_json);
         // Missing `segments` field means this should fail to parse as WhisperXOutput.
-        assert!(as_success.is_err(), "error JSON must not parse as WhisperXOutput");
+        assert!(
+            as_success.is_err(),
+            "error JSON must not parse as WhisperXOutput"
+        );
 
         let as_error = serde_json::from_str::<WhisperXError>(error_json);
         assert!(as_error.is_ok());
@@ -329,6 +344,9 @@ mod tests {
     #[test]
     fn transcription_timeout_error_constant_is_stable() {
         // The token must remain stable; the frontend matches it by string equality.
-        assert_eq!(TRANSCRIPTION_TIMEOUT_ERROR, "BRIEF_ERR_TRANSCRIPTION_TIMEOUT");
+        assert_eq!(
+            TRANSCRIPTION_TIMEOUT_ERROR,
+            "BRIEF_ERR_TRANSCRIPTION_TIMEOUT"
+        );
     }
 }

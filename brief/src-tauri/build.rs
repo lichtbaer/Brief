@@ -1,6 +1,5 @@
 fn main() {
-    let manifest_dir =
-        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
     let models_dir = std::path::Path::new(&manifest_dir).join("../whisperx_runner/models");
 
     if !models_dir.exists() {

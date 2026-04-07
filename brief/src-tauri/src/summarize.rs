@@ -104,7 +104,9 @@ impl Summarizer {
     ) -> Result<MeetingOutput, String> {
         log::info!(
             "Requesting summary from Ollama: model={} type={} transcript_len={}",
-            self.model, meeting_type, transcript.len()
+            self.model,
+            meeting_type,
+            transcript.len()
         );
         let mut last_err = String::new();
 
@@ -118,12 +120,18 @@ impl Summarizer {
                 let delay_ms = capped_ms + jitter_ms;
                 log::warn!(
                     "Ollama summarize attempt {}/{} failed ({}), retrying in {}ms",
-                    attempt, self.max_retries, last_err, delay_ms
+                    attempt,
+                    self.max_retries,
+                    last_err,
+                    delay_ms
                 );
                 tokio::time::sleep(Duration::from_millis(delay_ms)).await;
             }
 
-            match self.attempt_summarize(transcript, system_prompt, meeting_type).await {
+            match self
+                .attempt_summarize(transcript, system_prompt, meeting_type)
+                .await
+            {
                 Ok(output) => {
                     log::info!("Summarization succeeded on attempt {}", attempt + 1);
                     return Ok(output);
@@ -405,7 +413,9 @@ mod tests {
 
     #[test]
     fn is_parse_error_ignores_network_errors() {
-        assert!(!is_parse_error("Ollama not reachable — is `ollama serve` running?"));
+        assert!(!is_parse_error(
+            "Ollama not reachable — is `ollama serve` running?"
+        ));
         assert!(!is_parse_error("Ollama error: HTTP 503"));
         assert!(!is_parse_error("connection refused"));
     }

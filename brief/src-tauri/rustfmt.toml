@@ -1,0 +1,7 @@
+# rustfmt configuration for Brief's Rust backend.
+# Run: cargo fmt  (check only: cargo fmt --check)
+# Only stable options are used here — nightly-only options (imports_granularity,
+# group_imports) are intentionally omitted to keep CI on stable toolchain.
+edition = "2021"
+max_width = 100
+use_small_heuristics = "Default"

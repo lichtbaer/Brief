@@ -147,22 +147,18 @@ impl Storage {
             .collect();
 
         if !cols.contains(&"speaker_names_json".to_string()) {
-            sqlx::query(
-                "ALTER TABLE meetings ADD COLUMN speaker_names_json TEXT DEFAULT '{}'",
-            )
-            .execute(&self.pool)
-            .await
-            .map_err(|e| format!("Migration failed (speaker_names_json): {}", e))?;
+            sqlx::query("ALTER TABLE meetings ADD COLUMN speaker_names_json TEXT DEFAULT '{}'")
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("Migration failed (speaker_names_json): {}", e))?;
         }
 
         // Migration: add segments_json column for diarized segment persistence (speaker + timestamps).
         if !cols.contains(&"segments_json".to_string()) {
-            sqlx::query(
-                "ALTER TABLE meetings ADD COLUMN segments_json TEXT DEFAULT '[]'",
-            )
-            .execute(&self.pool)
-            .await
-            .map_err(|e| format!("Migration failed (segments_json): {}", e))?;
+            sqlx::query("ALTER TABLE meetings ADD COLUMN segments_json TEXT DEFAULT '[]'")
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("Migration failed (segments_json): {}", e))?;
         }
 
         // Add indexes for common query patterns (idempotent — IF NOT EXISTS).
@@ -286,7 +282,11 @@ impl Storage {
     /// Both INSERTs run inside a single transaction so the DB never ends up with a meetings row
     /// that is missing from the FTS index (or vice versa).
     pub async fn save_meeting(&self, meeting: &Meeting) -> Result<(), String> {
-        log::debug!("Saving meeting: id={} type={}", meeting.id, meeting.meeting_type);
+        log::debug!(
+            "Saving meeting: id={} type={}",
+            meeting.id,
+            meeting.meeting_type
+        );
         let output_json = serde_json::to_string(&meeting.output).map_err(|e| e.to_string())?;
         let tags_json = serde_json::to_string(&meeting.tags).map_err(|e| e.to_string())?;
         let segments_json = serde_json::to_string(&meeting.segments).map_err(|e| e.to_string())?;
@@ -390,7 +390,11 @@ impl Storage {
 
         let has_more = rows.len() as u32 > limit;
         // Return only the requested page (drop the sentinel row).
-        let page = if has_more { &rows[..limit as usize] } else { &rows[..] };
+        let page = if has_more {
+            &rows[..limit as usize]
+        } else {
+            &rows[..]
+        };
 
         let meetings: Vec<serde_json::Value> = page.iter().map(row_to_meeting_summary).collect();
 
@@ -482,29 +486,26 @@ impl Storage {
             .await
             .map_err(|e| format!("Transaction begin failed: {}", e))?;
 
-        let affected = sqlx::query(
-            "UPDATE meetings SET title = ? WHERE id = ? AND deleted_at IS NULL",
-        )
-        .bind(title)
-        .bind(id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| format!("update_meeting_title failed: {}", e))?
-        .rows_affected();
+        let affected =
+            sqlx::query("UPDATE meetings SET title = ? WHERE id = ? AND deleted_at IS NULL")
+                .bind(title)
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| format!("update_meeting_title failed: {}", e))?
+                .rows_affected();
 
         if affected == 0 {
             return Err(crate::error::AppError::MeetingNotFound(id.to_string()).to_string());
         }
 
         // Keep the FTS index in sync so search reflects the new title immediately.
-        sqlx::query(
-            "UPDATE meetings_fts SET title = ? WHERE id = ?",
-        )
-        .bind(title)
-        .bind(id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| format!("FTS title update failed: {}", e))?;
+        sqlx::query("UPDATE meetings_fts SET title = ? WHERE id = ?")
+            .bind(title)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("FTS title update failed: {}", e))?;
 
         tx.commit()
             .await
@@ -521,15 +522,14 @@ impl Storage {
         output: &crate::types::MeetingOutput,
     ) -> Result<(), String> {
         let output_json = serde_json::to_string(output).map_err(|e| e.to_string())?;
-        let affected = sqlx::query(
-            "UPDATE meetings SET output_json = ? WHERE id = ? AND deleted_at IS NULL",
-        )
-        .bind(&output_json)
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("update_meeting_output failed: {}", e))?
-        .rows_affected();
+        let affected =
+            sqlx::query("UPDATE meetings SET output_json = ? WHERE id = ? AND deleted_at IS NULL")
+                .bind(&output_json)
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("update_meeting_output failed: {}", e))?
+                .rows_affected();
 
         if affected == 0 {
             return Err(crate::error::AppError::MeetingNotFound(id.to_string()).to_string());
@@ -554,15 +554,14 @@ impl Storage {
             }
         }
         let tags_json = serde_json::to_string(tags).map_err(|e| e.to_string())?;
-        let affected = sqlx::query(
-            "UPDATE meetings SET tags_json = ? WHERE id = ? AND deleted_at IS NULL",
-        )
-        .bind(&tags_json)
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| format!("update_meeting_tags failed: {}", e))?
-        .rows_affected();
+        let affected =
+            sqlx::query("UPDATE meetings SET tags_json = ? WHERE id = ? AND deleted_at IS NULL")
+                .bind(&tags_json)
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("update_meeting_tags failed: {}", e))?
+                .rows_affected();
 
         if affected == 0 {
             return Err(crate::error::AppError::MeetingNotFound(id.to_string()).to_string());
@@ -689,9 +688,15 @@ impl Storage {
                 "meeting_type": r.get::<String, _>("meeting_type"),
                 "title": r.get::<String, _>("title"),
                 "transcript": r.get::<String, _>("transcript"),
-                "output": serde_json::from_str::<serde_json::Value>(&output_json).unwrap_or_else(|_| json!({})),
+                "output": serde_json::from_str::<serde_json::Value>(&output_json).unwrap_or_else(|e| {
+                    log::warn!("output_json parse failed for meeting {}: {e}", r.get::<String, _>("id"));
+                    json!({})
+                }),
                 "audio_path": r.get::<Option<String>, _>("audio_path"),
-                "tags": serde_json::from_str::<serde_json::Value>(&tags_json).unwrap_or_else(|_| json!([])),
+                "tags": serde_json::from_str::<serde_json::Value>(&tags_json).unwrap_or_else(|e| {
+                    log::warn!("tags_json parse failed for meeting {}: {e}", r.get::<String, _>("id"));
+                    json!([])
+                }),
                 "speaker_names": speaker_names_json
                     .as_deref()
                     .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
@@ -744,7 +749,11 @@ impl Storage {
             // Delete the file; "not found" is tolerated (may have been manually removed).
             if let Err(e) = std::fs::remove_file(&audio_path) {
                 if e.kind() != std::io::ErrorKind::NotFound {
-                    log::warn!("purge_expired_audio: could not delete {}: {}", audio_path, e);
+                    log::warn!(
+                        "purge_expired_audio: could not delete {}: {}",
+                        audio_path,
+                        e
+                    );
                 }
             }
 
@@ -764,14 +773,15 @@ impl Storage {
     /// Patches the `follow_up_draft.full_text` field inside the stored `output_json` blob.
     /// Deserializes the current output, replaces only `full_text`, and re-serializes to preserve all other fields.
     pub async fn update_follow_up_draft_text(&self, id: &str, text: &str) -> Result<(), String> {
-        let row = sqlx::query(
-            "SELECT output_json FROM meetings WHERE id = ? AND deleted_at IS NULL",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| format!("Failed to fetch meeting for draft update: {}", e))?
-        .ok_or_else(|| crate::error::AppError::MeetingNotFound(id.to_string()).to_string())?;
+        let row =
+            sqlx::query("SELECT output_json FROM meetings WHERE id = ? AND deleted_at IS NULL")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| format!("Failed to fetch meeting for draft update: {}", e))?
+                .ok_or_else(|| {
+                    crate::error::AppError::MeetingNotFound(id.to_string()).to_string()
+                })?;
 
         let output_json: String = row.get("output_json");
         let mut output: serde_json::Value =
@@ -1033,13 +1043,24 @@ impl Storage {
 /// duration_seconds columns) to a summary JSON object used in the meeting list and history view.
 fn row_to_meeting_summary(r: &sqlx::sqlite::SqliteRow) -> serde_json::Value {
     let output_str: String = r.get("output_json");
-    let output: serde_json::Value =
-        serde_json::from_str(&output_str).unwrap_or_else(|_| json!({}));
+    let output: serde_json::Value = serde_json::from_str(&output_str).unwrap_or_else(|e| {
+        // Log data-integrity problems so they surface in support logs rather than failing silently.
+        log::warn!(
+            "output_json parse failed for meeting {}: {e}",
+            r.get::<String, _>("id")
+        );
+        json!({})
+    });
     let action_items = output["action_items"].as_array();
     let action_items_count = action_items.map(|a| a.len()).unwrap_or(0);
     let tags_json: String = r.get("tags_json");
-    let tags: serde_json::Value =
-        serde_json::from_str(&tags_json).unwrap_or_else(|_| json!([]));
+    let tags: serde_json::Value = serde_json::from_str(&tags_json).unwrap_or_else(|e| {
+        log::warn!(
+            "tags_json parse failed for meeting {}: {e}",
+            r.get::<String, _>("id")
+        );
+        json!([])
+    });
     json!({
         "id": r.get::<String, _>("id"),
         "created_at": r.get::<String, _>("created_at"),
@@ -1172,7 +1193,10 @@ mod tests {
         );
         // Hyphenated tokens are also quoted.
         let result = build_fts5_query("hello-world").unwrap();
-        assert!(result.contains('"'), "Hyphenated token should be quoted: {result}");
+        assert!(
+            result.contains('"'),
+            "Hyphenated token should be quoted: {result}"
+        );
     }
 
     #[test]
@@ -1356,7 +1380,10 @@ mod tests {
 
         // Reload and verify the names are persisted.
         let json = s.get_meeting("spk-1").await.unwrap().unwrap();
-        assert!(json.contains("Alice"), "Alice must be in stored speaker_names");
+        assert!(
+            json.contains("Alice"),
+            "Alice must be in stored speaker_names"
+        );
         assert!(json.contains("Bob"), "Bob must be in stored speaker_names");
 
         let _ = std::fs::remove_file(&tmp);
