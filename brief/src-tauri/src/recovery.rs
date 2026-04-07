@@ -171,7 +171,10 @@ mod tests {
     #[test]
     fn session_id_rejects_partial_uuid() {
         // Not enough sections for a valid UUID.
-        assert_eq!(session_id_from_wav_filename("brief_550e8400-e29b.wav"), None);
+        assert_eq!(
+            session_id_from_wav_filename("brief_550e8400-e29b.wav"),
+            None
+        );
     }
 
     #[test]

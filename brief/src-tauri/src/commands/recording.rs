@@ -70,11 +70,9 @@ pub async fn stop_recording(
 ) -> Result<String, String> {
     // Atomic remove under the lock: only one caller can win the race for a given session_id.
     let mut recorder = {
-        let mut guard = state
-            .recordings
-            .lock()
-            .map_err(|_| AppError::StateLocked)?;
-        guard.remove(&session_id)
+        let mut guard = state.recordings.lock().map_err(|_| AppError::StateLocked)?;
+        guard
+            .remove(&session_id)
             .ok_or(AppError::SessionNotFound(session_id.clone()))?
         // Lock released here — stop_and_save runs without holding the global lock.
     };
@@ -163,7 +161,11 @@ pub async fn process_meeting_inner(
         let (url, model, timeout) = storage.get_summarizer_config().await?;
         // Only read the custom template when meeting_type is "custom" — avoids unnecessary DB query.
         let custom = if meeting_type == "custom" {
-            storage.get_setting("custom_prompt_template").await.ok().flatten()
+            storage
+                .get_setting("custom_prompt_template")
+                .await
+                .ok()
+                .flatten()
         } else {
             None
         };
@@ -172,9 +174,12 @@ pub async fn process_meeting_inner(
 
     // Retry up to 3 times with 2 s / 4 s / 8 s backoff on transient network failures.
     // JSON parse errors are never retried (see `Summarizer::summarize`).
-    let summarizer =
-        crate::summarize::Summarizer::new(Some(ollama_url), Some(llm_model), Some(ollama_timeout_secs))?
-            .with_retry_config(3, 2000);
+    let summarizer = crate::summarize::Summarizer::new(
+        Some(ollama_url),
+        Some(llm_model),
+        Some(ollama_timeout_secs),
+    )?
+    .with_retry_config(3, 2000);
     let output = if summarizer.check_available().await {
         let system_prompt = crate::templates::get_system_prompt_with_custom(
             &meeting_type,
@@ -233,11 +238,7 @@ pub async fn process_meeting_inner(
         let dest = audio_dir.join(format!("{session_id}.wav"));
         std::fs::rename(&audio_path_buf, &dest)
             .map_err(|e| AppError::IoError(format!("Failed to move audio file: {e}")))?;
-        meeting.audio_path = Some(
-            dest.to_str()
-                .ok_or(AppError::InvalidAudioPath)?
-                .to_string(),
-        );
+        meeting.audio_path = Some(dest.to_str().ok_or(AppError::InvalidAudioPath)?.to_string());
     }
 
     {
@@ -355,25 +356,30 @@ pub async fn regenerate_summary(
         let storage = state.storage.lock().await;
         let (url, model, timeout) = storage.get_summarizer_config().await?;
         let custom = if meeting_type == "custom" {
-            storage.get_setting("custom_prompt_template").await.ok().flatten()
+            storage
+                .get_setting("custom_prompt_template")
+                .await
+                .ok()
+                .flatten()
         } else {
             None
         };
         (url, model, timeout, custom)
     };
 
-    let summarizer =
-        crate::summarize::Summarizer::new(Some(ollama_url), Some(llm_model), Some(ollama_timeout_secs))?
-            .with_retry_config(3, 2000);
+    let summarizer = crate::summarize::Summarizer::new(
+        Some(ollama_url),
+        Some(llm_model),
+        Some(ollama_timeout_secs),
+    )?
+    .with_retry_config(3, 2000);
 
     if !summarizer.check_available().await {
         return Err("Ollama not reachable — is `ollama serve` running?".to_string());
     }
 
-    let system_prompt = crate::templates::get_system_prompt_with_custom(
-        &meeting_type,
-        custom_template.as_deref(),
-    );
+    let system_prompt =
+        crate::templates::get_system_prompt_with_custom(&meeting_type, custom_template.as_deref());
     let new_output = summarizer
         .summarize(&meeting.transcript, &system_prompt, &meeting_type)
         .await

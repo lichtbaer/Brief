@@ -92,7 +92,10 @@ mod tests {
             AppError::SessionNotFound("abc".into()).to_string(),
             "Session not found: abc"
         );
-        assert_eq!(AppError::StateLocked.to_string(), "Internal state lock failed");
+        assert_eq!(
+            AppError::StateLocked.to_string(),
+            "Internal state lock failed"
+        );
         assert_eq!(AppError::Cancelled.to_string(), "cancelled");
     }
 

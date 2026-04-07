@@ -3,14 +3,11 @@
 use std::collections::HashMap;
 
 use crate::error::AppError;
-use crate::storage::Storage;
 use crate::state::AppState;
+use crate::storage::Storage;
 
 /// Fetches and parses a meeting as JSON value — shared helper to avoid duplicating the fetch+parse pattern.
-pub async fn fetch_meeting_value(
-    storage: &Storage,
-    id: &str,
-) -> Result<serde_json::Value, String> {
+pub async fn fetch_meeting_value(storage: &Storage, id: &str) -> Result<serde_json::Value, String> {
     let json = storage
         .get_meeting(id)
         .await?
@@ -20,10 +17,7 @@ pub async fn fetch_meeting_value(
 
 /// Loads a meeting by id from the database or returns an error string if not found.
 #[tauri::command]
-pub async fn get_meeting(
-    id: String,
-    state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
+pub async fn get_meeting(id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
     let storage = state.storage.lock().await;
     storage
         .get_meeting(&id)
@@ -40,9 +34,7 @@ pub async fn list_meetings(
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
     let storage = state.storage.lock().await;
-    storage
-        .list_meetings_paginated(before.as_deref(), 20)
-        .await
+    storage.list_meetings_paginated(before.as_deref(), 20).await
 }
 
 /// Full-text search across meeting titles and transcripts (FTS5).
@@ -85,10 +77,7 @@ pub async fn update_meeting_tags(
 /// Soft-deletes a meeting by id. The row is kept in the DB with `deleted_at` set so it no
 /// longer appears in list/search but could be recovered in a future admin feature.
 #[tauri::command]
-pub async fn delete_meeting(
-    id: String,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn delete_meeting(id: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let storage = state.storage.lock().await;
     storage.delete_meeting(&id).await
 }
@@ -132,9 +121,7 @@ pub async fn list_meetings_by_tag(
 /// Intended to run on app startup and can be invoked on demand.
 /// Returns the number of audio files purged.
 #[tauri::command]
-pub async fn enforce_audio_retention(
-    state: tauri::State<'_, AppState>,
-) -> Result<u32, String> {
+pub async fn enforce_audio_retention(state: tauri::State<'_, AppState>) -> Result<u32, String> {
     let storage = state.storage.lock().await;
     storage.purge_expired_audio().await
 }
@@ -154,9 +141,7 @@ pub async fn update_follow_up_draft(
 /// Returns aggregated meeting statistics: total count, total duration, type breakdown,
 /// action item count, and weekly meeting counts (last 12 weeks).
 #[tauri::command]
-pub async fn get_meeting_stats(
-    state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
+pub async fn get_meeting_stats(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let storage = state.storage.lock().await;
     storage.get_meeting_stats().await
 }
@@ -190,9 +175,7 @@ pub async fn list_meetings_by_date_range(
 /// Returns a flat list of all action items across all non-deleted meetings, sorted by priority
 /// then recency. Each entry includes the source meeting id and title for provenance.
 #[tauri::command]
-pub async fn get_all_action_items(
-    state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
+pub async fn get_all_action_items(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let storage = state.storage.lock().await;
     storage.get_all_action_items().await
 }
@@ -244,9 +227,12 @@ pub async fn bulk_regenerate_meetings(
         storage.get_summarizer_config().await?
     };
 
-    let summarizer =
-        crate::summarize::Summarizer::new(Some(ollama_url), Some(llm_model), Some(ollama_timeout_secs))?
-            .with_retry_config(3, 2000);
+    let summarizer = crate::summarize::Summarizer::new(
+        Some(ollama_url),
+        Some(llm_model),
+        Some(ollama_timeout_secs),
+    )?
+    .with_retry_config(3, 2000);
 
     if !summarizer.check_available().await {
         return Err("Ollama not reachable — is `ollama serve` running?".to_string());
@@ -262,25 +248,32 @@ pub async fn bulk_regenerate_meetings(
             let json_opt = storage.get_meeting(id).await?;
             let json = match json_opt {
                 Some(j) => j,
-                None => { errors += 1; continue; }
+                None => {
+                    errors += 1;
+                    continue;
+                }
             };
-            let meeting: crate::types::Meeting =
-                match serde_json::from_str(&json) {
-                    Ok(m) => m,
-                    Err(_) => { errors += 1; continue; }
-                };
+            let meeting: crate::types::Meeting = match serde_json::from_str(&json) {
+                Ok(m) => m,
+                Err(_) => {
+                    errors += 1;
+                    continue;
+                }
+            };
             let custom = if mt == "custom" {
-                storage.get_setting("custom_prompt_template").await.ok().flatten()
+                storage
+                    .get_setting("custom_prompt_template")
+                    .await
+                    .ok()
+                    .flatten()
             } else {
                 None
             };
             (meeting.transcript, custom)
         };
 
-        let system_prompt = crate::templates::get_system_prompt_with_custom(
-            mt,
-            custom_template.as_deref(),
-        );
+        let system_prompt =
+            crate::templates::get_system_prompt_with_custom(mt, custom_template.as_deref());
 
         match summarizer.summarize(&transcript, &system_prompt, mt).await {
             Ok(new_output) => {

@@ -34,10 +34,7 @@ pub async fn export_markdown(
 /// Export meeting as PDF bytes (base64); frontend decodes and saves via dialog.
 /// Section headers are localised to the current UI language.
 #[tauri::command]
-pub async fn export_pdf(
-    id: String,
-    state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
+pub async fn export_pdf(id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
     let storage = state.storage.lock().await;
     let meeting = fetch_meeting_value(&storage, &id).await?;
     let lang = get_ui_language(&storage).await;
@@ -136,7 +133,10 @@ pub async fn export_action_items_csv(
         let owner = csv_escape(item["owner"].as_str().unwrap_or(""));
         let due_date = csv_escape(item["due_date"].as_str().unwrap_or(""));
         let priority = csv_escape(item["priority"].as_str().unwrap_or(""));
-        csv.push_str(&format!("{},{},{},{}\n", description, owner, due_date, priority));
+        csv.push_str(&format!(
+            "{},{},{},{}\n",
+            description, owner, due_date, priority
+        ));
     }
 
     let title = meeting["title"].as_str().unwrap_or("meeting").to_string();

@@ -109,7 +109,8 @@ export function SettingsView() {
         void updateSetting(key, value);
       }, DEBOUNCE_MS);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Empty deps array is intentional: debounceChange is initialised once and relies
+    // only on `debounceTimers` (a stable ref) and `updateSetting` (stable Tauri invoke wrapper).
     [],
   );
 

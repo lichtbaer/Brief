@@ -18,9 +18,7 @@ const MAX_BUFFER_SAMPLES: usize = 48_000 * 60 * 240;
 pub fn list_audio_input_devices() -> Vec<String> {
     let host = cpal::default_host();
     match host.input_devices() {
-        Ok(devices) => devices
-            .filter_map(|d| d.name().ok())
-            .collect(),
+        Ok(devices) => devices.filter_map(|d| d.name().ok()).collect(),
         Err(e) => {
             log::error!("Failed to enumerate audio devices: {e}");
             vec![]
@@ -126,16 +124,106 @@ impl AudioRecorder {
             let err_fn = |err: cpal::StreamError| log::error!("Audio stream error: {err}");
 
             let stream_result = match sample_format {
-                cpal::SampleFormat::I8 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, i8),
-                cpal::SampleFormat::I16 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, i16),
-                cpal::SampleFormat::I32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, i32),
-                cpal::SampleFormat::I64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, i64),
-                cpal::SampleFormat::U8 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, u8),
-                cpal::SampleFormat::U16 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, u16),
-                cpal::SampleFormat::U32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, u32),
-                cpal::SampleFormat::U64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, u64),
-                cpal::SampleFormat::F32 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, f32),
-                cpal::SampleFormat::F64 => build_stream_for_format!(device, &stream_config, buffer, channels, err_fn, last_rms, buffer_overflow, f64),
+                cpal::SampleFormat::I8 => build_stream_for_format!(
+                    device,
+                    &stream_config,
+                    buffer,
+                    channels,
+                    err_fn,
+                    last_rms,
+                    buffer_overflow,
+                    i8
+                ),
+                cpal::SampleFormat::I16 => build_stream_for_format!(
+                    device,
+                    &stream_config,
+                    buffer,
+                    channels,
+                    err_fn,
+                    last_rms,
+                    buffer_overflow,
+                    i16
+                ),
+                cpal::SampleFormat::I32 => build_stream_for_format!(
+                    device,
+                    &stream_config,
+                    buffer,
+                    channels,
+                    err_fn,
+                    last_rms,
+                    buffer_overflow,
+                    i32
+                ),
+                cpal::SampleFormat::I64 => build_stream_for_format!(
+                    device,
+                    &stream_config,
+                    buffer,
+                    channels,
+                    err_fn,
+                    last_rms,
+                    buffer_overflow,
+                    i64
+                ),
+                cpal::SampleFormat::U8 => build_stream_for_format!(
+                    device,
+                    &stream_config,
+                    buffer,
+                    channels,
+                    err_fn,
+                    last_rms,
+                    buffer_overflow,
+                    u8
+                ),
+                cpal::SampleFormat::U16 => build_stream_for_format!(
+                    device,
+                    &stream_config,
+                    buffer,
+                    channels,
+                    err_fn,
+                    last_rms,
+                    buffer_overflow,
+                    u16
+                ),
+                cpal::SampleFormat::U32 => build_stream_for_format!(
+                    device,
+                    &stream_config,
+                    buffer,
+                    channels,
+                    err_fn,
+                    last_rms,
+                    buffer_overflow,
+                    u32
+                ),
+                cpal::SampleFormat::U64 => build_stream_for_format!(
+                    device,
+                    &stream_config,
+                    buffer,
+                    channels,
+                    err_fn,
+                    last_rms,
+                    buffer_overflow,
+                    u64
+                ),
+                cpal::SampleFormat::F32 => build_stream_for_format!(
+                    device,
+                    &stream_config,
+                    buffer,
+                    channels,
+                    err_fn,
+                    last_rms,
+                    buffer_overflow,
+                    f32
+                ),
+                cpal::SampleFormat::F64 => build_stream_for_format!(
+                    device,
+                    &stream_config,
+                    buffer,
+                    channels,
+                    err_fn,
+                    last_rms,
+                    buffer_overflow,
+                    f64
+                ),
                 f => {
                     log::error!("Unsupported audio sample format: {f}");
                     return;
@@ -166,7 +254,10 @@ impl AudioRecorder {
 
     /// Stops capture, joins the stream thread, resamples buffered audio to 16 kHz mono, and writes a float WAV at `output_path`.
     pub fn stop_and_save(&mut self, output_path: &PathBuf) -> Result<(), String> {
-        log::info!("Stopping recording and saving WAV to {}", output_path.display());
+        log::info!(
+            "Stopping recording and saving WAV to {}",
+            output_path.display()
+        );
         if let Some(tx) = self.stop_tx.take() {
             let _ = tx.send(());
         }
@@ -209,8 +300,7 @@ fn push_mono_frames<T>(
     channels: usize,
     buffer: &Arc<Mutex<Vec<f32>>>,
     overflow_flag: &Arc<Mutex<bool>>,
-)
-where
+) where
     T: Sample,
     f32: FromSample<T>,
 {
@@ -239,7 +329,11 @@ fn resample_to_16k(samples: &[f32], source_rate: u32) -> Vec<f32> {
     if source_rate == 16000 {
         return samples.to_vec();
     }
-    log::debug!("Resampling {} samples from {} Hz to 16000 Hz", samples.len(), source_rate);
+    log::debug!(
+        "Resampling {} samples from {} Hz to 16000 Hz",
+        samples.len(),
+        source_rate
+    );
     let ratio = 16000.0 / source_rate as f64;
     if samples.is_empty() {
         return Vec::new();
@@ -335,6 +429,9 @@ mod tests {
         push_mono_frames(&input, 1, &buffer, &overflow);
         let buf = buffer.lock().unwrap();
         assert_eq!(buf.len(), MAX_BUFFER_SAMPLES);
-        assert!(*overflow.lock().unwrap(), "overflow flag should be set when buffer is full");
+        assert!(
+            *overflow.lock().unwrap(),
+            "overflow flag should be set when buffer is full"
+        );
     }
 }

@@ -8,16 +8,8 @@ pub fn calculate_duration_seconds(segments: &[crate::transcribe::DiarizedSegment
     if segments.is_empty() {
         return 0;
     }
-    let start = segments
-        .first()
-        .map(|s| s.start)
-        .unwrap_or(0.0)
-        .max(0.0);
-    let end = segments
-        .last()
-        .map(|s| s.end)
-        .unwrap_or(0.0)
-        .max(0.0);
+    let start = segments.first().map(|s| s.start).unwrap_or(0.0).max(0.0);
+    let end = segments.last().map(|s| s.end).unwrap_or(0.0).max(0.0);
     ((end - start).max(0.0).ceil() as u32).max(1)
 }
 

@@ -36,9 +36,7 @@ pub(crate) fn resolve_orphan_wav_path(user_path: &Path) -> Result<PathBuf, Strin
         }
         return Err(AppError::InvalidAudioPath.into());
     }
-    let file_name = user_path
-        .file_name()
-        .ok_or(AppError::InvalidAudioPath)?;
+    let file_name = user_path.file_name().ok_or(AppError::InvalidAudioPath)?;
     let temp = std::env::temp_dir();
     let candidate = temp.join(file_name);
     let temp_canon = temp

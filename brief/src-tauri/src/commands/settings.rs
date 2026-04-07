@@ -45,10 +45,7 @@ pub async fn get_app_settings_snapshot(
 
 /// Persists the LLM model and marks `llm_model_user_override` so auto-recommendations do not overwrite it.
 #[tauri::command]
-pub async fn set_llm_model(
-    model: String,
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn set_llm_model(model: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
     let trimmed = model.trim();
     if trimmed.is_empty() {
         return Err(AppError::ValidationError("Model name must not be empty".into()).into());
@@ -61,9 +58,7 @@ pub async fn set_llm_model(
 
 /// Persists the user's choice to hide the low-RAM onboarding hint.
 #[tauri::command]
-pub async fn dismiss_low_ram_onboarding(
-    state: tauri::State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn dismiss_low_ram_onboarding(state: tauri::State<'_, AppState>) -> Result<(), String> {
     let storage = state.storage.lock().await;
     storage
         .set_setting("low_ram_onboarding_dismissed", "1")
@@ -170,18 +165,14 @@ pub async fn update_setting(
             match url::Url::parse(trimmed) {
                 Ok(parsed) => {
                     if parsed.scheme() != "http" && parsed.scheme() != "https" {
-                        return Err(
-                            AppError::ValidationError(
-                                "Ollama URL must use http:// or https:// scheme".into(),
-                            )
-                            .into(),
-                        );
+                        return Err(AppError::ValidationError(
+                            "Ollama URL must use http:// or https:// scheme".into(),
+                        )
+                        .into());
                     }
                 }
                 Err(_) => {
-                    return Err(
-                        AppError::ValidationError("Invalid URL format".into()).into(),
-                    );
+                    return Err(AppError::ValidationError("Invalid URL format".into()).into());
                 }
             }
         }
@@ -193,15 +184,15 @@ pub async fn update_setting(
         let trimmed = value.trim();
         // Allow empty string to clear the custom template; non-empty must be at least 20 chars.
         if !trimmed.is_empty() && trimmed.len() < 20 {
-            return Err(
-                AppError::ValidationError(
-                    "Custom prompt must be at least 20 characters".into(),
-                )
-                .into(),
-            );
+            return Err(AppError::ValidationError(
+                "Custom prompt must be at least 20 characters".into(),
+            )
+            .into());
         }
         let storage = state.storage.lock().await;
-        storage.set_setting("custom_prompt_template", trimmed).await?;
+        storage
+            .set_setting("custom_prompt_template", trimmed)
+            .await?;
         return Ok(());
     }
     let storage = state.storage.lock().await;

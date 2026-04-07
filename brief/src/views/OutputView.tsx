@@ -11,11 +11,8 @@ import type {
   SettingDefaults,
   Topic,
 } from "../types";
-
-export function safeExportBaseName(title: string): string {
-  const trimmed = title.replace(/[/\\?%*:|"<>]/g, "-").trim();
-  return trimmed.length > 0 ? trimmed : "meeting";
-}
+// Re-export so callers that imported safeExportBaseName from here continue to work.
+export { safeExportBaseName } from "../utils/exportUtils";
 
 const PRIORITY_BADGE_STYLE: Record<
   NonNullable<ActionItem["priority"]>,
@@ -37,8 +34,11 @@ const PRIORITY_BADGE_STYLE: Record<
  */
 function highlightTerms(text: string, query: string): ReactNode {
   if (!query.trim()) return text;
+  // Truncate before escaping to prevent ReDoS: a very long query with special characters
+  // can create a regex that causes catastrophic backtracking on large transcripts.
+  const safeQuery = query.slice(0, 200);
   // Build a case-insensitive regex from the query; escape special regex characters.
-  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const escaped = safeQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const parts = text.split(new RegExp(`(${escaped})`, "gi"));
   return parts.map((part, i) =>
     // Every odd index is a match (the captured group from the regex split).

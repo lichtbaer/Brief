@@ -38,7 +38,11 @@ const LABELS_EN: ExportLabels = ExportLabels {
 
 /// Returns export labels matching the UI language; defaults to German for unknown codes.
 fn labels_for_language(lang: &str) -> &'static ExportLabels {
-    if lang.starts_with("en") { &LABELS_EN } else { &LABELS_DE }
+    if lang.starts_with("en") {
+        &LABELS_EN
+    } else {
+        &LABELS_DE
+    }
 }
 
 /// Builds Markdown from stored meeting JSON (snake_case keys).
@@ -50,7 +54,10 @@ pub fn generate_markdown(meeting: &serde_json::Value, language: &str) -> String 
     let meeting_type = meeting["meeting_type"].as_str().unwrap_or("");
     let output = &meeting["output"];
 
-    let mut md = format!("# {title}\n\n**{}:** {date}  \n**{}:** {meeting_type}\n\n", l.date, l.type_label);
+    let mut md = format!(
+        "# {title}\n\n**{}:** {date}  \n**{}:** {meeting_type}\n\n",
+        l.date, l.type_label
+    );
 
     if let Some(summary) = output["summary_short"].as_str() {
         if !summary.is_empty() {
