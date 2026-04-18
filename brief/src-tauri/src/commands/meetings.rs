@@ -241,7 +241,20 @@ pub async fn bulk_regenerate_meetings(
     let mut regenerated: u32 = 0;
     let mut errors: u32 = 0;
 
+    // Cap the total operation time so a hung Ollama instance cannot block indefinitely.
+    // 30 minutes is generous even for 100+ long meetings at ~5–10 s each.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30 * 60);
+
     for (id, mt) in &meeting_ids {
+        if tokio::time::Instant::now() >= deadline {
+            log::warn!(
+                "bulk_regenerate_meetings: 30-minute deadline reached after {}/{} meetings",
+                regenerated + errors,
+                meeting_ids.len()
+            );
+            break;
+        }
+
         // Load transcript and optional custom template per meeting.
         let (transcript, custom_template) = {
             let storage = state.storage.lock().await;
@@ -275,15 +288,35 @@ pub async fn bulk_regenerate_meetings(
         let system_prompt =
             crate::templates::get_system_prompt_with_custom(mt, custom_template.as_deref());
 
-        match summarizer.summarize(&transcript, &system_prompt, mt).await {
-            Ok(new_output) => {
+        // Per-meeting timeout of 10 minutes — consistent with the Ollama request timeout.
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        let per_meeting_timeout = remaining.min(std::time::Duration::from_secs(10 * 60));
+
+        let summarize_result = tokio::time::timeout(
+            per_meeting_timeout,
+            summarizer.summarize(&transcript, &system_prompt, mt),
+        )
+        .await;
+
+        match summarize_result {
+            Ok(Ok(new_output)) => {
                 let storage = state.storage.lock().await;
                 match storage.update_meeting_output(id, &new_output).await {
                     Ok(_) => regenerated += 1,
-                    Err(_) => errors += 1,
+                    Err(e) => {
+                        log::warn!("bulk_regenerate_meetings: DB update failed for {}: {}", id, e);
+                        errors += 1;
+                    }
                 }
             }
-            Err(_) => errors += 1,
+            Ok(Err(e)) => {
+                log::warn!("bulk_regenerate_meetings: summarization failed for {}: {}", id, e);
+                errors += 1;
+            }
+            Err(_elapsed) => {
+                log::warn!("bulk_regenerate_meetings: per-meeting timeout exceeded for {}", id);
+                errors += 1;
+            }
         }
     }
 

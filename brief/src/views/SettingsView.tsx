@@ -1,7 +1,14 @@
-import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import i18n from "../i18n";
+import {
+  bulkRegenerateMeetings,
+  getAppSettingsSnapshot,
+  getAllSettings,
+  getSettingDefaults,
+  listAudioDevices,
+  updateSetting,
+} from "../services/settingsService";
 import type { AppSettingsSnapshot, PersistedSettings, SettingDefaults } from "../types";
 
 /** Result shape returned by the `bulk_regenerate_meetings` Tauri command. */
@@ -68,12 +75,12 @@ export function SettingsView() {
 
   useEffect(() => {
     void Promise.all([
-      invoke<string>("get_all_settings"),
-      invoke<AppSettingsSnapshot>("get_app_settings_snapshot"),
-      invoke<SettingDefaults>("get_setting_defaults"),
+      getAllSettings(),
+      getAppSettingsSnapshot(),
+      getSettingDefaults(),
     ])
-      .then(([raw, snap, defaults]) => {
-        setSettings(mergeSettings(JSON.parse(raw) as Record<string, string>, defaults));
+      .then(([settings, snap, defaults]) => {
+        setSettings(mergeSettings(settings as unknown as Record<string, string>, defaults));
         setSnapshot(snap);
       })
       .catch(() => {
@@ -81,7 +88,7 @@ export function SettingsView() {
         setSnapshot(null);
       });
     // Load available audio input devices in parallel; non-fatal if it fails.
-    void invoke<string[]>("list_audio_devices")
+    void listAudioDevices()
       .then(setAudioDevices)
       .catch(() => setAudioDevices([]));
   }, []);
@@ -89,7 +96,7 @@ export function SettingsView() {
   // Refresh audio device list when the view gains focus (e.g. USB mic plugged in after app start).
   useEffect(() => {
     const refreshDevices = () => {
-      void invoke<string[]>("list_audio_devices")
+      void listAudioDevices()
         .then(setAudioDevices)
         .catch(() => {});
     };
@@ -106,17 +113,17 @@ export function SettingsView() {
       // Clear any pending timer for this key.
       if (debounceTimers.current[key]) clearTimeout(debounceTimers.current[key]);
       debounceTimers.current[key] = setTimeout(() => {
-        void updateSetting(key, value);
+        void handleUpdateSetting(key, value);
       }, DEBOUNCE_MS);
     },
     // Empty deps array is intentional: debounceChange is initialised once and relies
-    // only on `debounceTimers` (a stable ref) and `updateSetting` (stable Tauri invoke wrapper).
+    // only on `debounceTimers` (a stable ref) and `handleUpdateSetting` (stable wrapper).
     [],
   );
 
-  const updateSetting = async (key: keyof PersistedSettings, value: string) => {
+  const handleUpdateSetting = async (key: keyof PersistedSettings, value: string) => {
     try {
-      await invoke("update_setting", { key, value });
+      await updateSetting(key, value);
     } catch (e) {
       setSettingsError(String(e));
       setTimeout(() => setSettingsError(null), 5000);
@@ -125,7 +132,7 @@ export function SettingsView() {
     setSettings((prev) => (prev ? { ...prev, [key]: value } : prev));
 
     if (key === "llm_model") {
-      void invoke<AppSettingsSnapshot>("get_app_settings_snapshot")
+      void getAppSettingsSnapshot()
         .then(setSnapshot)
         .catch(() => {});
     }
@@ -229,7 +236,7 @@ export function SettingsView() {
             value={settings.ollama_timeout_secs ?? FALLBACK_DEFAULTS.ollama_timeout_secs}
             min={30}
             max={3600}
-            onChange={(e) => void updateSetting("ollama_timeout_secs", e.target.value)}
+            onChange={(e) => void handleUpdateSetting("ollama_timeout_secs", e.target.value)}
             style={{ maxWidth: "10rem" }}
           />
           <small style={{ display: "block", marginTop: "0.35rem", color: "var(--color-text-muted)", fontSize: "0.8rem" }}>
@@ -270,7 +277,7 @@ export function SettingsView() {
             id="meeting-language"
             className="form-select"
             value={settings.meeting_language}
-            onChange={(e) => void updateSetting("meeting_language", e.target.value)}
+            onChange={(e) => void handleUpdateSetting("meeting_language", e.target.value)}
             style={{ maxWidth: "14rem" }}
           >
             <option value="de">{t("languages.de")}</option>
@@ -289,7 +296,7 @@ export function SettingsView() {
             value={settings.whisperx_timeout_secs ?? FALLBACK_DEFAULTS.whisperx_timeout_secs}
             min={60}
             max={86400}
-            onChange={(e) => void updateSetting("whisperx_timeout_secs", e.target.value)}
+            onChange={(e) => void handleUpdateSetting("whisperx_timeout_secs", e.target.value)}
             style={{ maxWidth: "10rem" }}
           />
           <small style={{ display: "block", marginTop: "0.35rem", color: "var(--color-text-muted)", fontSize: "0.8rem" }}>
@@ -307,7 +314,7 @@ export function SettingsView() {
               id="audio-device"
               className="form-select"
               value={settings.audio_device ?? "default"}
-              onChange={(e) => void updateSetting("audio_device", e.target.value)}
+              onChange={(e) => void handleUpdateSetting("audio_device", e.target.value)}
               style={{ maxWidth: "28rem" }}
             >
               <option value="default">{t("settings.audio_device_default")}</option>
@@ -329,7 +336,7 @@ export function SettingsView() {
             id="default-meeting-type"
             className="form-select"
             value={settings.default_meeting_type}
-            onChange={(e) => void updateSetting("default_meeting_type", e.target.value)}
+            onChange={(e) => void handleUpdateSetting("default_meeting_type", e.target.value)}
             style={{ maxWidth: "20rem" }}
           >
             <option value="consulting">{t("meeting_types.consulting")}</option>
@@ -345,7 +352,7 @@ export function SettingsView() {
               type="checkbox"
               checked={settings.retain_audio === "true"}
               onChange={(e) =>
-                void updateSetting("retain_audio", e.target.checked ? "true" : "false")
+                void handleUpdateSetting("retain_audio", e.target.checked ? "true" : "false")
               }
             />
             <span style={{ fontSize: "0.9rem" }}>{t("settings.retain_audio_label")}</span>
@@ -370,7 +377,7 @@ export function SettingsView() {
             id="ui-language"
             className="form-select"
             value={settings.ui_language ?? "de"}
-            onChange={(e) => void updateSetting("ui_language", e.target.value)}
+            onChange={(e) => void handleUpdateSetting("ui_language", e.target.value)}
             style={{ maxWidth: "14rem" }}
           >
             <option value="de">{t("languages.de")}</option>
@@ -388,7 +395,7 @@ export function SettingsView() {
             className="form-input"
             value={settings.retention_days}
             min={0}
-            onChange={(e) => void updateSetting("retention_days", e.target.value)}
+            onChange={(e) => void handleUpdateSetting("retention_days", e.target.value)}
             style={{ maxWidth: "10rem" }}
           />
           <small style={{ display: "block", marginTop: "0.35rem", color: "var(--color-text-muted)", fontSize: "0.8rem" }}>
@@ -434,12 +441,8 @@ export function SettingsView() {
             onClick={() => {
               setBulkRegenResult(null);
               setBulkRegenRunning(true);
-              void invoke<string>("bulk_regenerate_meetings", {
-                meetingType: bulkRegenMeetingType || null,
-              })
-                .then((raw) => {
-                  setBulkRegenResult(JSON.parse(raw) as BulkRegenResult);
-                })
+              void bulkRegenerateMeetings(bulkRegenMeetingType || undefined)
+                .then((result) => setBulkRegenResult(result))
                 .catch((e: unknown) => {
                   setSettingsError(String(e));
                   setTimeout(() => setSettingsError(null), 5000);

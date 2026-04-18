@@ -1,27 +1,28 @@
-import { invoke } from "@tauri-apps/api/core";
 import type { MouseEvent } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StatsPanel } from "../components/StatsPanel";
-import { isMeeting, type CrossMeetingActionItem, type Meeting } from "../types";
+import {
+  deleteMeeting as apiDeleteMeeting,
+  deleteMeetingsBefore,
+  getAllActionItems,
+  getMeeting,
+  listMeetings,
+  listMeetingsByDateRange,
+  listMeetingsByParticipant,
+  listMeetingsByTag,
+  listMeetingsByType,
+  searchMeetings,
+} from "../services/meetingService";
+import {
+  isMeeting,
+  type CrossMeetingActionItem,
+  type Meeting,
+  type MeetingSummary,
+} from "../types";
 
-export interface MeetingSummary {
-  id: string;
-  created_at: string;
-  meeting_type: string;
-  title: string;
-  summary_short?: string;
-  action_items_count?: number;
-  duration_seconds?: number;
-  tags?: string[];
-}
-
-/** Paginated response shape from the `list_meetings` Tauri command. */
-interface ListMeetingsResponse {
-  meetings: MeetingSummary[];
-  has_more: boolean;
-  next_cursor: string | null;
-}
+// Re-export so callers that imported MeetingSummary from here continue to work.
+export type { MeetingSummary } from "../types";
 
 interface HistoryViewProps {
   /** Invoked with a full `Meeting` after `get_meeting` when the user opens a list item.
@@ -113,8 +114,7 @@ export function HistoryView({ onOpenMeeting, initialParticipantFilter, onPartici
     setDateTo("");
     searchActiveRef.current = false;
     try {
-      const result = await invoke<string>("list_meetings", { before: undefined });
-      const { meetings: page, has_more, next_cursor } = JSON.parse(result) as ListMeetingsResponse;
+      const { meetings: page, has_more, next_cursor } = await listMeetings();
       setMeetings(page);
       setHasMore(has_more);
       setNextCursor(next_cursor);
@@ -144,10 +144,8 @@ export function HistoryView({ onOpenMeeting, initialParticipantFilter, onPartici
   useEffect(() => {
     if (activeTab !== "action_items") return;
     setActionItemsLoading(true);
-    void invoke<string>("get_all_action_items")
-      .then((raw) => {
-        setActionItems(JSON.parse(raw) as CrossMeetingActionItem[]);
-      })
+    void getAllActionItems()
+      .then((items) => setActionItems(items))
       .catch((e: unknown) => {
         setLoadError(e instanceof Error ? e.message : String(e));
       })
@@ -159,8 +157,7 @@ export function HistoryView({ onOpenMeeting, initialParticipantFilter, onPartici
     if (!hasMore || loadingMore || !nextCursor) return;
     setLoadingMore(true);
     try {
-      const result = await invoke<string>("list_meetings", { before: nextCursor });
-      const { meetings: page, has_more, next_cursor } = JSON.parse(result) as ListMeetingsResponse;
+      const { meetings: page, has_more, next_cursor } = await listMeetings(nextCursor ?? undefined);
       setMeetings((prev) => [...prev, ...page]);
       setHasMore(has_more);
       setNextCursor(next_cursor);
@@ -197,11 +194,7 @@ export function HistoryView({ onOpenMeeting, initialParticipantFilter, onPartici
       setLoading(true);
       setLoadError(null);
       try {
-        const result = await invoke<string>("list_meetings_by_date_range", {
-          fromDate: from,
-          toDate: to,
-        });
-        let results = JSON.parse(result) as MeetingSummary[];
+        let results = await listMeetingsByDateRange(from, to);
         if (tag) results = results.filter((m) => m.tags?.includes(tag));
         if (type) results = results.filter((m) => m.meeting_type === type);
         setMeetings(results);
@@ -221,8 +214,7 @@ export function HistoryView({ onOpenMeeting, initialParticipantFilter, onPartici
       setLoading(true);
       setLoadError(null);
       try {
-        const result = await invoke<string>("list_meetings_by_participant", { name: participant });
-        let results = JSON.parse(result) as MeetingSummary[];
+        let results = await listMeetingsByParticipant(participant);
         if (tag) results = results.filter((m) => m.tags?.includes(tag));
         if (type) results = results.filter((m) => m.meeting_type === type);
         setMeetings(results);
@@ -243,8 +235,7 @@ export function HistoryView({ onOpenMeeting, initialParticipantFilter, onPartici
         setLoading(true);
         setLoadError(null);
         try {
-          const result = await invoke<string>("list_meetings_by_tag", { tag });
-          let results = JSON.parse(result) as MeetingSummary[];
+          let results = await listMeetingsByTag(tag);
           if (type) results = results.filter((m) => m.meeting_type === type);
           setMeetings(results);
         } catch (e) {
@@ -260,8 +251,7 @@ export function HistoryView({ onOpenMeeting, initialParticipantFilter, onPartici
         setLoading(true);
         setLoadError(null);
         try {
-          const result = await invoke<string>("list_meetings_by_type", { meetingType: type });
-          setMeetings(JSON.parse(result) as MeetingSummary[]);
+          setMeetings(await listMeetingsByType(type));
         } catch (e) {
           setLoadError(e instanceof Error ? e.message : String(e));
         } finally {
@@ -283,8 +273,7 @@ export function HistoryView({ onOpenMeeting, initialParticipantFilter, onPartici
     setLoading(true);
     setLoadError(null);
     try {
-      const result = await invoke<string>("search_meetings", { query: q });
-      let results = JSON.parse(result) as MeetingSummary[];
+      let results = await searchMeetings(q);
       // Apply secondary filters client-side on top of FTS results.
       if (tag) results = results.filter((m) => m.tags?.includes(tag));
       if (type) results = results.filter((m) => m.meeting_type === type);
@@ -367,7 +356,7 @@ export function HistoryView({ onOpenMeeting, initialParticipantFilter, onPartici
     e.stopPropagation();
     if (!window.confirm(t("output.delete_confirm"))) return;
     try {
-      await invoke("delete_meeting", { id });
+      await apiDeleteMeeting(id);
       setMeetings((prev) => prev.filter((m) => m.id !== id));
     } catch {
       setOpenError(t("output.delete_error"));
@@ -378,8 +367,7 @@ export function HistoryView({ onOpenMeeting, initialParticipantFilter, onPartici
   const openMeeting = async (id: string) => {
     setOpenError(null);
     try {
-      const json = await invoke<string>("get_meeting", { id });
-      const meeting = JSON.parse(json) as unknown;
+      const meeting = await getMeeting(id) as unknown;
       if (!isMeeting(meeting)) throw new Error("Invalid meeting data");
       // Pass the current search query so OutputView can highlight matched terms (Feature 6).
       onOpenMeeting(meeting, searchQuery.trim().length >= 2 ? searchQuery : undefined);
@@ -402,7 +390,7 @@ export function HistoryView({ onOpenMeeting, initialParticipantFilter, onPartici
     if (!window.confirm(t("history.bulk_delete_confirm", { date: bulkDeleteBefore }))) return;
     setBulkDeleting(true);
     try {
-      const count = await invoke<number>("delete_meetings_before", { before: isoTimestamp });
+      const count = await deleteMeetingsBefore(isoTimestamp);
       setBulkDeleteBefore(null);
       if (count > 0) void loadMeetings();
     } catch (e) {
@@ -412,14 +400,22 @@ export function HistoryView({ onOpenMeeting, initialParticipantFilter, onPartici
     }
   };
 
-  // Collect all unique tags and meeting types from the currently loaded meetings for filter chips.
-  const allTags = [...new Set(meetings.flatMap((m) => m.tags ?? []))];
-  const allTypes = [...new Set(meetings.map((m) => m.meeting_type))];
-
-  // Derive filtered action items when a priority filter chip is active (Feature 1).
-  const filteredActionItems = actionItemPriorityFilter
-    ? actionItems.filter((a) => a.priority === actionItemPriorityFilter)
-    : actionItems;
+  // Memoize derived filter values — prevents N re-computations per keystroke on large meeting lists.
+  const allTags = useMemo(
+    () => [...new Set(meetings.flatMap((m) => m.tags ?? []))],
+    [meetings],
+  );
+  const allTypes = useMemo(
+    () => [...new Set(meetings.map((m) => m.meeting_type))],
+    [meetings],
+  );
+  const filteredActionItems = useMemo(
+    () =>
+      actionItemPriorityFilter
+        ? actionItems.filter((a) => a.priority === actionItemPriorityFilter)
+        : actionItems,
+    [actionItems, actionItemPriorityFilter],
+  );
 
   return (
     <section aria-label={t("nav.history")} style={{ maxWidth: "40rem" }}>

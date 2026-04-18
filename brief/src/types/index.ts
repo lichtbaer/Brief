@@ -1,5 +1,24 @@
 export type MeetingType = "consulting" | "legal" | "internal" | "custom";
 
+/** Summary row returned by list/search commands — lighter than a full Meeting. */
+export interface MeetingSummary {
+  id: string;
+  created_at: string;
+  meeting_type: string;
+  title: string;
+  summary_short?: string;
+  action_items_count?: number;
+  duration_seconds?: number;
+  tags?: string[];
+}
+
+/** Paginated response from the `list_meetings` Tauri command. */
+export interface ListMeetingsResponse {
+  meetings: MeetingSummary[];
+  has_more: boolean;
+  next_cursor: string | null;
+}
+
 /** Must match `transcribe::TRANSCRIPTION_TIMEOUT_ERROR` in the Tauri backend. */
 export const TRANSCRIPTION_TIMEOUT_ERROR = "BRIEF_ERR_TRANSCRIPTION_TIMEOUT";
 
