@@ -63,7 +63,10 @@
     "no_microphone": "Kein Mikrofon gefunden",
     "ollama_not_reachable": "Ollama nicht erreichbar — läuft `ollama serve`?",
     "processing_failed": "Verarbeitung fehlgeschlagen: {{message}}",
-    "alert": "Fehler: {{message}}"
+    "alert": "Fehler: {{message}}",
+    "boundary_title": "Ein Fehler ist aufgetreten",
+    "boundary_message": "Diese Ansicht konnte nicht geladen werden. Du kannst es erneut versuchen oder zur Aufnahme zurückkehren.",
+    "boundary_retry": "Erneut versuchen"
   },
   "history": {
     "title": "Meeting-Verlauf",

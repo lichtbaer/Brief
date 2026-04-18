@@ -1,14 +1,25 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import type { CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { FollowUpSection } from "../components/FollowUpSection";
+import { TranscriptSection } from "../components/TranscriptSection";
 import { useExport } from "../hooks/useExport";
+import {
+  deleteMeeting,
+  getAudioPath,
+  regenerateSummary,
+  updateFollowUpDraft,
+  updateMeetingTags,
+  updateMeetingTitle,
+  updateSpeakerNames,
+} from "../services/meetingService";
+import { getSettingDefaults } from "../services/settingsService";
 import { formatDuration } from "./HistoryView";
 import type {
   ActionItem,
   Decision,
   Meeting,
-  SettingDefaults,
   Topic,
 } from "../types";
 // Re-export so callers that imported safeExportBaseName from here continue to work.
@@ -27,44 +38,6 @@ const PRIORITY_BADGE_STYLE: Record<
   low: { backgroundColor: "#dcfce7", color: "#166534", borderColor: "#4ade80" },
 };
 
-/**
- * Splits `text` on case-insensitive occurrences of `query` and returns an array of React nodes
- * where matched portions are wrapped in `<mark>` elements. Used for transcript search highlighting.
- * Returns plain text when `query` is empty to avoid unnecessary React reconciliation.
- */
-function highlightTerms(text: string, query: string): ReactNode {
-  if (!query.trim()) return text;
-  // Truncate before escaping to prevent ReDoS: a very long query with special characters
-  // can create a regex that causes catastrophic backtracking on large transcripts.
-  const safeQuery = query.slice(0, 200);
-  // Build a case-insensitive regex from the query; escape special regex characters.
-  const escaped = safeQuery.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const parts = text.split(new RegExp(`(${escaped})`, "gi"));
-  return parts.map((part, i) =>
-    // Every odd index is a match (the captured group from the regex split).
-    i % 2 === 1 ? <mark key={i}>{part}</mark> : part
-  );
-}
-
-/** Extracts unique speaker label IDs from a raw transcript string (e.g. "SPEAKER_00", "SPEAKER_01"). */
-function extractSpeakers(transcript: string): string[] {
-  const matches = [...transcript.matchAll(/\[([A-Z_0-9]+)\]/g)];
-  return [...new Set(matches.map((m) => m[1]))];
-}
-
-/**
- * Replaces speaker label brackets in the displayed transcript with user-defined names.
- * The original stored transcript is never modified — substitution is view-only.
- * Uses global regex replace for ES2020 compatibility (no String.prototype.replaceAll).
- */
-function applyNames(transcript: string, names: Record<string, string>): string {
-  return Object.entries(names).reduce((t, [id, name]) => {
-    if (!name.trim()) return t;
-    // Escape the label for use in a regex (brackets are special regex chars).
-    const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return t.replace(new RegExp(`\\[${escaped}\\]`, "g"), `[${name.trim()}]`);
-  }, transcript);
-}
 
 interface OutputViewProps {
   /** Meeting to display (summary, topics, transcript, optional retained audio). */
@@ -124,8 +97,6 @@ export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onF
   const [speakerNames, setSpeakerNames] = useState<Record<string, string>>(
     meeting.speaker_names ?? {}
   );
-  const speakers = extractSpeakers(meeting.transcript);
-
   // Ref holding the latest names to avoid stale closure in the blur handler.
   const speakerNamesRef = useRef(speakerNames);
   speakerNamesRef.current = speakerNames;
@@ -139,7 +110,7 @@ export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onF
         return;
       }
       try {
-        const path = await invoke<string>("get_audio_path", { id: meeting.id });
+        const path = await getAudioPath(meeting.id);
         if (!cancelled) {
           setAudioUrl(convertFileSrc(path));
         }
@@ -158,7 +129,7 @@ export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onF
   // Fetch the current template version from the backend once per mount to power the
   // stale-analysis warning banner (Feature 4).
   useEffect(() => {
-    void invoke<SettingDefaults>("get_setting_defaults")
+    void getSettingDefaults()
       .then((d) => setCurrentTemplateVersion(d.template_version))
       .catch(() => { /* non-fatal */ });
   }, []);
@@ -187,10 +158,11 @@ export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onF
 
   const output = meeting.output;
   const followUp = output.follow_up_draft;
-  const followUpText =
-    followUp && typeof followUp.full_text === "string"
-      ? followUp.full_text.trim()
-      : "";
+  // Memoize trimmed follow-up text — avoids re-trim on every render when the meeting prop is stable.
+  const followUpText = useMemo(
+    () => (followUp && typeof followUp.full_text === "string" ? followUp.full_text.trim() : ""),
+    [followUp],
+  );
 
   /** Persists the edited title to the backend; reverts to the previous value on failure. */
   const persistTitle = async (newTitle: string) => {
@@ -201,7 +173,7 @@ export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onF
       return;
     }
     try {
-      await invoke("update_meeting_title", { id: meeting.id, title: trimmed });
+      await updateMeetingTitle(meeting.id, trimmed);
       setTitle(trimmed);
       setTitleSaveError(false);
     } catch {
@@ -213,11 +185,11 @@ export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onF
   };
 
   /** Prompts for confirmation then soft-deletes the meeting and navigates back. */
-  const deleteMeeting = async () => {
+  const handleDeleteMeeting = async () => {
     if (!window.confirm(t("output.delete_confirm"))) return;
     setDeleting(true);
     try {
-      await invoke("delete_meeting", { id: meeting.id });
+      await deleteMeeting(meeting.id);
       onBack();
     } catch {
       setDeleting(false);
@@ -226,15 +198,11 @@ export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onF
   };
 
   /** Re-runs the Ollama summarizer on the stored transcript; updates the view with the new output. */
-  const regenerateSummary = async () => {
+  const handleRegenerateSummary = async () => {
     setRegenerating(true);
     try {
-      const json = await invoke<string>("regenerate_summary", {
-        id: meeting.id,
-        meetingType: meeting.meeting_type,
-      });
-      const updated = JSON.parse(json) as Meeting;
-      if (onMeetingUpdated) onMeetingUpdated(updated);
+      const newOutput = await regenerateSummary(meeting.id, meeting.meeting_type);
+      if (onMeetingUpdated) onMeetingUpdated({ ...meeting, output: newOutput });
     } catch {
       alert(t("output.regenerate_error"));
     } finally {
@@ -253,7 +221,7 @@ export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onF
   const saveFollowUpDraft = async () => {
     if (followUpEditText === null) return;
     try {
-      await invoke("update_follow_up_draft", { id: meeting.id, text: followUpEditText });
+      await updateFollowUpDraft(meeting.id, followUpEditText);
       setFollowUpEditText(null);
       setFollowUpSaveError(false);
     } catch {
@@ -275,7 +243,7 @@ export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onF
     setTags(updated);
     setTagInput("");
     try {
-      await invoke("update_meeting_tags", { id: meeting.id, tags: updated });
+      await updateMeetingTags(meeting.id, updated);
     } catch {
       // Revert optimistic update on failure.
       setTags(tags);
@@ -287,7 +255,7 @@ export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onF
     const updated = tags.filter((t) => t !== tag);
     setTags(updated);
     try {
-      await invoke("update_meeting_tags", { id: meeting.id, tags: updated });
+      await updateMeetingTags(meeting.id, updated);
     } catch {
       setTags(tags);
     }
@@ -296,7 +264,7 @@ export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onF
   /** Persists the full speaker names map after a single field loses focus. */
   const persistSpeakerNames = async (names: Record<string, string>) => {
     try {
-      await invoke("update_speaker_names", { id: meeting.id, names });
+      await updateSpeakerNames(meeting.id, names);
       setSpeakerSaveError(false);
     } catch {
       // Show a brief inline error so the user knows the name was not saved.
@@ -423,7 +391,7 @@ export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onF
             type="button"
             className="btn btn-ghost btn-icon"
             disabled={regenerating || deleting || exportBusy !== null}
-            onClick={() => void regenerateSummary()}
+            onClick={() => void handleRegenerateSummary()}
           >
             {regenerating ? (
               <><span className="spinner spinner-dark" />{t("output.regenerating")}</>
@@ -435,7 +403,7 @@ export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onF
             type="button"
             className="btn btn-ghost btn-icon"
             disabled={deleting || regenerating || exportBusy !== null}
-            onClick={() => void deleteMeeting()}
+            onClick={() => void handleDeleteMeeting()}
             style={{ color: "var(--color-error, #dc2626)", marginLeft: "auto" }}
           >
             {deleting ? (
@@ -646,241 +614,35 @@ export function OutputView({ meeting, onBack, onMeetingUpdated, searchQuery, onF
         </section>
       )}
 
-      {followUpText.length > 0 && (
-        <section className="output-section">
-          <h2>{t("output.follow_up_draft")}</h2>
-          <div style={{ marginTop: "0.5rem" }}>
-            {followUp.subject && followUpEditText === null && (
-              <p style={{ marginBottom: "0.5rem" }}>
-                <strong>{t("output.subject")}:</strong> {followUp.subject}
-              </p>
-            )}
-            {/* Editable textarea — shown while editing; read-only pre shown otherwise */}
-            {followUpEditText !== null ? (
-              <textarea
-                className="form-input"
-                value={followUpEditText}
-                onChange={(e) => setFollowUpEditText(e.target.value)}
-                style={{ width: "100%", minHeight: "12rem", fontFamily: "inherit", fontSize: "0.9rem", whiteSpace: "pre-wrap", resize: "vertical" }}
-                aria-label={t("output.follow_up_draft")}
-              />
-            ) : (
-              <pre className="email-body" style={{ fontFamily: "inherit" }}>
-                {followUpText}
-              </pre>
-            )}
-          </div>
-          {followUpSaveError && (
-            <div className="alert alert-error" role="alert" style={{ marginTop: "0.5rem", fontSize: "0.85rem" }}>
-              <span>⚠</span>
-              <span>{t("output.follow_up_save_error")}</span>
-            </div>
-          )}
-          <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.75rem", flexWrap: "wrap" }}>
-            {followUpEditText === null ? (
-              <>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-icon"
-                  onClick={() => setFollowUpEditText(followUpText)}
-                >
-                  {t("output.follow_up_edit")}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-icon"
-                  onClick={copyEmail}
-                >
-                  {copied ? t("output.copied") : t("output.copy_email")}
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-icon"
-                  onClick={() => void saveFollowUpDraft()}
-                >
-                  {t("output.follow_up_save")}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-icon"
-                  onClick={() => { setFollowUpEditText(null); setFollowUpSaveError(false); }}
-                >
-                  {t("output.follow_up_cancel")}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-icon"
-                  onClick={copyEmail}
-                >
-                  {copied ? t("output.copied") : t("output.copy_email")}
-                </button>
-              </>
-            )}
-          </div>
-        </section>
-      )}
+      <FollowUpSection
+        followUp={followUp}
+        followUpText={followUpText}
+        followUpEditText={followUpEditText}
+        followUpSaveError={followUpSaveError}
+        copied={copied}
+        onChangeEditText={setFollowUpEditText}
+        onSave={() => void saveFollowUpDraft()}
+        onCancel={() => { setFollowUpEditText(null); setFollowUpSaveError(false); }}
+        onStartEdit={() => setFollowUpEditText(followUpText)}
+        onCopy={copyEmail}
+      />
 
-      {/* Speaker naming panel — only shown when the transcript contains diarized speaker labels */}
-      {speakers.length > 0 && (
-        <section className="output-section">
-          <h2>{t("output.speaker_names_title")}</h2>
-          <p style={{ fontSize: "0.8rem", color: "var(--color-text-muted)", marginTop: "0.25rem", marginBottom: "0.75rem" }}>
-            {t("output.speaker_names_hint")}
-          </p>
-          {speakerSaveError && (
-            <div className="alert alert-error" role="alert" style={{ marginBottom: "0.75rem", fontSize: "0.85rem" }}>
-              <span>⚠</span>
-              <span>{t("output.speaker_names_save_error")}</span>
-            </div>
-          )}
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-            {speakers.map((id) => (
-              <div key={id} style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                <span
-                  style={{
-                    fontSize: "0.8rem",
-                    fontFamily: "monospace",
-                    color: "var(--color-text-muted)",
-                    minWidth: "8rem",
-                  }}
-                >
-                  {id}
-                </span>
-                <input
-                  type="text"
-                  value={speakerNames[id] ?? ""}
-                  placeholder={t("output.speaker_name_placeholder")}
-                  maxLength={50}
-                  onChange={(e) => {
-                    // Enforce max 50 chars; trim leading/trailing whitespace on persist (blur handler).
-                    const updated = { ...speakerNamesRef.current, [id]: e.target.value.slice(0, 50) };
-                    setSpeakerNames(updated);
-                  }}
-                  onBlur={() => {
-                    // Persist the full map once the user leaves the input field.
-                    void persistSpeakerNames(speakerNamesRef.current);
-                  }}
-                  className="form-input"
-                  style={{ maxWidth: "16rem", fontSize: "0.875rem" }}
-                />
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section className="output-section">
-        {/* Auto-open the details element when the user arrived via a search query (Feature 6) */}
-        <details open={!!searchQuery}>
-          <summary style={{ cursor: "pointer", userSelect: "none", fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.07em", color: "var(--color-text-subtle)", fontWeight: 600 }}>
-            {t("output.transcript")}
-          </summary>
-          {/* When diarized segments are available, render them with timestamps for click-to-seek.
-              Fall back to the plain transcript for older meetings without segment data. */}
-          {meeting.segments && meeting.segments.length > 0 ? (
-            <div style={{ marginTop: "0.5rem", display: "flex", flexDirection: "column", gap: "0.4rem" }}>
-              {meeting.segments.map((seg, i) => {
-                const displaySpeaker = speakerNames[seg.speaker] || seg.speaker;
-                const startSec = Math.floor(seg.start);
-                const mins = String(Math.floor(startSec / 60)).padStart(2, "0");
-                const secs = String(startSec % 60).padStart(2, "0");
-                const isActive = currentSegmentIndex === i;
-                return (
-                  // Wrap each segment row in a button so clicking it seeks the audio player
-                  // to the segment's start time (Feature 2). Disabled when no audio is retained.
-                  <button
-                    key={i}
-                    type="button"
-                    disabled={!audioUrl}
-                    aria-label={t("output.seek_to_segment_aria", { time: `${mins}:${secs}` })}
-                    onClick={() => {
-                      const audio = audioRef.current;
-                      if (!audio) return;
-                      audio.currentTime = seg.start;
-                      void audio.play();
-                    }}
-                    style={{
-                      display: "flex",
-                      gap: "0.75rem",
-                      alignItems: "flex-start",
-                      fontSize: "0.875rem",
-                      lineHeight: 1.5,
-                      background: isActive ? "var(--color-accent-subtle, rgba(59,130,246,0.08))" : "none",
-                      border: "none",
-                      borderLeft: isActive ? "3px solid var(--color-accent, #3b82f6)" : "3px solid transparent",
-                      borderRadius: 0,
-                      cursor: audioUrl ? "pointer" : "default",
-                      padding: "0.15rem 0.25rem",
-                      textAlign: "left",
-                      width: "100%",
-                    }}
-                  >
-                    <span style={{ fontFamily: "monospace", color: "var(--color-text-subtle)", minWidth: "3.5rem", flexShrink: 0, paddingTop: "0.05rem" }}>
-                      {mins}:{secs}
-                    </span>
-                    <span style={{ fontFamily: "monospace", color: "var(--color-text-muted)", minWidth: "6.5rem", flexShrink: 0, paddingTop: "0.05rem" }}>
-                      {displaySpeaker}
-                    </span>
-                    <span style={{ flex: 1 }}>
-                      {/* Apply search term highlighting on segment text (Feature 6) */}
-                      {searchQuery ? highlightTerms(seg.text, searchQuery) : seg.text}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <pre className="transcript" style={{ marginTop: "0.5rem", fontFamily: "inherit" }}>
-              {/* Apply search highlighting and speaker name substitution on plain transcript */}
-              {searchQuery
-                ? highlightTerms(applyNames(meeting.transcript, speakerNames), searchQuery)
-                : applyNames(meeting.transcript, speakerNames)}
-            </pre>
-          )}
-        </details>
-      </section>
-
-      {output.participants_mentioned.length > 0 && (
-        <section className="output-section">
-          <h2>{t("output.participants")}</h2>
-          {/* Participant names are rendered as clickable buttons when a filter callback is provided
-              so the user can jump to a history view filtered to all meetings with that person (Feature 7). */}
-          {onFilterByParticipant ? (
-            <>
-              <p style={{ marginTop: "0.25rem", marginBottom: "0.35rem", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
-                {t("output.participants_filter_hint")}
-              </p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem" }}>
-                {output.participants_mentioned.map((name) => (
-                  <button
-                    key={name}
-                    type="button"
-                    onClick={() => onFilterByParticipant(name)}
-                    style={{
-                      fontSize: "0.875rem",
-                      padding: "0.2rem 0.6rem",
-                      borderRadius: "999px",
-                      border: "1px solid var(--color-accent, #3b82f6)",
-                      background: "transparent",
-                      color: "var(--color-accent, #3b82f6)",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {name}
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : (
-            <p style={{ marginTop: "0.25rem" }}>
-              {output.participants_mentioned.join(", ")}
-            </p>
-          )}
-        </section>
-      )}
+      <TranscriptSection
+        transcript={meeting.transcript}
+        segments={meeting.segments}
+        output={output}
+        speakerNames={speakerNames}
+        currentSegmentIndex={currentSegmentIndex}
+        audioUrl={audioUrl}
+        audioRef={audioRef}
+        searchQuery={searchQuery}
+        speakerSaveError={speakerSaveError}
+        onSpeakerNameChange={(id, value) => {
+          setSpeakerNames({ ...speakerNamesRef.current, [id]: value });
+        }}
+        onSpeakerNameBlur={() => void persistSpeakerNames(speakerNamesRef.current)}
+        onFilterByParticipant={onFilterByParticipant}
+      />
     </div>
   );
 }

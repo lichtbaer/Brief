@@ -741,12 +741,14 @@ impl Storage {
         .await
         .map_err(|e| format!("purge_expired_audio query failed: {}", e))?;
 
-        let mut purged: u32 = 0;
+        // Delete all audio files first, collecting IDs regardless of file-deletion outcome.
+        // A "not found" error is tolerated — the file may have been removed manually.
+        // We clear the DB reference even when the file is already gone so we don't retry forever.
+        let mut ids_to_clear: Vec<String> = Vec::with_capacity(rows.len());
         for row in &rows {
             let id: String = row.get("id");
             let audio_path: String = row.get("audio_path");
 
-            // Delete the file; "not found" is tolerated (may have been manually removed).
             if let Err(e) = std::fs::remove_file(&audio_path) {
                 if e.kind() != std::io::ErrorKind::NotFound {
                     log::warn!(
@@ -757,16 +759,31 @@ impl Storage {
                 }
             }
 
-            // Clear DB reference so the meeting no longer references a deleted file.
-            sqlx::query("UPDATE meetings SET audio_path = NULL WHERE id = ?")
-                .bind(&id)
-                .execute(&self.pool)
-                .await
-                .map_err(|e| format!("purge_expired_audio update failed: {}", e))?;
-
-            purged += 1;
+            ids_to_clear.push(id);
         }
 
+        // One batch UPDATE instead of N individual queries — avoids N+1 round-trips.
+        if !ids_to_clear.is_empty() {
+            let placeholders = ids_to_clear
+                .iter()
+                .map(|_| "?")
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "UPDATE meetings SET audio_path = NULL WHERE id IN ({})",
+                placeholders
+            );
+            let mut query = sqlx::query(&sql);
+            for id in &ids_to_clear {
+                query = query.bind(id.as_str());
+            }
+            query
+                .execute(&self.pool)
+                .await
+                .map_err(|e| format!("purge_expired_audio batch update failed: {}", e))?;
+        }
+
+        let purged = ids_to_clear.len() as u32;
         Ok(purged)
     }
 
@@ -1021,14 +1038,17 @@ impl Storage {
         .map_err(|e| format!("delete_meetings_before failed: {}", e))?
         .rows_affected() as u32;
 
-        // Remove from FTS index.
+        // Remove from FTS index in a single batch DELETE instead of N individual queries.
+        let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+        let fts_sql = format!("DELETE FROM meetings_fts WHERE id IN ({})", placeholders);
+        let mut fts_query = sqlx::query(&fts_sql);
         for id in &ids {
-            sqlx::query("DELETE FROM meetings_fts WHERE id = ?")
-                .bind(id)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| format!("FTS delete failed: {}", e))?;
+            fts_query = fts_query.bind(id.as_str());
         }
+        fts_query
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| format!("FTS batch delete failed: {}", e))?;
 
         tx.commit()
             .await

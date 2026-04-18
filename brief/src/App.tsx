@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LowRamOnboardingBanner } from "./components/LowRamOnboardingBanner";
 import { OnboardingWizard } from "./components/OnboardingWizard";
 import { RecoveryBanner } from "./components/RecoveryBanner";
@@ -169,28 +170,32 @@ export default function App() {
             onDismissed={handleLowRamDismissed}
           />
         )}
-        <div key={currentView} className="view-enter">
-          {currentView === "recording" && (
-            <RecordingView onMeetingDone={handleMeetingDone} />
-          )}
-          {currentView === "output" && currentMeeting && (
-            <OutputView
-              meeting={currentMeeting}
-              onBack={handleOutputBack}
-              onMeetingUpdated={setCurrentMeeting}
-              searchQuery={meetingSearchQuery}
-              onFilterByParticipant={handleFilterByParticipant}
-            />
-          )}
-          {currentView === "history" && (
-            <HistoryView
-              onOpenMeeting={handleOpenMeeting}
-              initialParticipantFilter={participantFilter}
-              onParticipantFilterConsumed={() => setParticipantFilter(undefined)}
-            />
-          )}
-          {currentView === "settings" && <SettingsView />}
-        </div>
+        {/* ErrorBoundary resets on view change via key prop, so a broken view
+            does not permanently disable the boundary for subsequent views. */}
+        <ErrorBoundary key={currentView}>
+          <div className="view-enter">
+            {currentView === "recording" && (
+              <RecordingView onMeetingDone={handleMeetingDone} />
+            )}
+            {currentView === "output" && currentMeeting && (
+              <OutputView
+                meeting={currentMeeting}
+                onBack={handleOutputBack}
+                onMeetingUpdated={setCurrentMeeting}
+                searchQuery={meetingSearchQuery}
+                onFilterByParticipant={handleFilterByParticipant}
+              />
+            )}
+            {currentView === "history" && (
+              <HistoryView
+                onOpenMeeting={handleOpenMeeting}
+                initialParticipantFilter={participantFilter}
+                onParticipantFilterConsumed={() => setParticipantFilter(undefined)}
+              />
+            )}
+            {currentView === "settings" && <SettingsView />}
+          </div>
+        </ErrorBoundary>
       </main>
     </div>
   );

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { updateSetting } from "../services/settingsService";
 import { useEffect, useReducer, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TRANSCRIPTION_TIMEOUT_ERROR, isMeeting, type Meeting, type MeetingType } from "../types";
@@ -301,7 +302,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
               onChange={(e) => {
                 const v = e.target.value;
                 setMeetingLanguage(v);
-                void invoke("update_setting", { key: "meeting_language", value: v }).catch(() => {});
+                void updateSetting("meeting_language", v).catch(() => {});
               }}
               style={{ maxWidth: "14rem" }}
             >
