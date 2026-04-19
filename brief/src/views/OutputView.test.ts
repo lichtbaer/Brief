@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { safeExportBaseName } from "./OutputView";
+import { safeExportBaseName } from "../utils/exportUtils";
 
 describe("safeExportBaseName", () => {
   it("returns title unchanged when no special chars", () => {

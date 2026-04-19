@@ -22,8 +22,6 @@ import type {
   Meeting,
   Topic,
 } from "../types";
-// Re-export so callers that imported safeExportBaseName from here continue to work.
-export { safeExportBaseName } from "../utils/exportUtils";
 
 const PRIORITY_BADGE_STYLE: Record<
   NonNullable<ActionItem["priority"]>,

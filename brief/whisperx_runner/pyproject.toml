@@ -1,0 +1,11 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# E: pycodestyle errors, F: pyflakes, I: isort import ordering.
+# Conservative selection — expand incrementally as the codebase grows.
+select = ["E", "F", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["payload"]
