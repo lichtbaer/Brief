@@ -304,17 +304,28 @@ pub async fn bulk_regenerate_meetings(
                 match storage.update_meeting_output(id, &new_output).await {
                     Ok(_) => regenerated += 1,
                     Err(e) => {
-                        log::warn!("bulk_regenerate_meetings: DB update failed for {}: {}", id, e);
+                        log::warn!(
+                            "bulk_regenerate_meetings: DB update failed for {}: {}",
+                            id,
+                            e
+                        );
                         errors += 1;
                     }
                 }
             }
             Ok(Err(e)) => {
-                log::warn!("bulk_regenerate_meetings: summarization failed for {}: {}", id, e);
+                log::warn!(
+                    "bulk_regenerate_meetings: summarization failed for {}: {}",
+                    id,
+                    e
+                );
                 errors += 1;
             }
             Err(_elapsed) => {
-                log::warn!("bulk_regenerate_meetings: per-meeting timeout exceeded for {}", id);
+                log::warn!(
+                    "bulk_regenerate_meetings: per-meeting timeout exceeded for {}",
+                    id
+                );
                 errors += 1;
             }
         }

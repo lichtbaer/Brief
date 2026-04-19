@@ -188,7 +188,17 @@ pub async fn process_meeting_inner(
         summarizer
             .summarize(&transcript, &system_prompt, &meeting_type)
             .await
-            .unwrap_or_else(|_| crate::types::MeetingOutput::placeholder(&meeting_type))
+            .unwrap_or_else(|e| {
+                // Summarization failed after all retries — log so production failures are visible.
+                // The meeting is still saved with a placeholder, which is the intended degraded behaviour.
+                log::warn!(
+                    "Summarization failed for session {} (type={}): {} — saving placeholder output",
+                    session_id,
+                    meeting_type,
+                    e
+                );
+                crate::types::MeetingOutput::placeholder(&meeting_type)
+            })
     } else {
         crate::types::MeetingOutput::placeholder(&meeting_type)
     };
@@ -281,7 +291,11 @@ pub async fn check_orphaned_recordings(
         return Ok(vec![]);
     }
     paths.truncate(1);
-    let path = paths.into_iter().next().unwrap();
+    // ok_or_else because truncate guarantees one element at runtime, but the compiler cannot
+    // verify that invariant — explicit error handling is required by CLAUDE.md rule 2.
+    let path = paths.into_iter().next().ok_or_else(|| {
+        AppError::IoError("No orphaned WAV path found after truncate".to_string())
+    })?;
     let metadata = std::fs::metadata(&path).map_err(|e| AppError::IoError(e.to_string()))?;
     let size_mb = metadata.len() as f64 / 1_048_576.0;
     let filename = path
