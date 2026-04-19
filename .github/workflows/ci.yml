@@ -44,6 +44,10 @@ jobs:
           python3 -m pytest
         working-directory: brief/whisperx_runner
 
+      - name: Python lint (ruff)
+        run: python3 -m ruff check .
+        working-directory: brief/whisperx_runner
+
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
