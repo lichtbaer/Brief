@@ -1361,7 +1361,7 @@ mod tests {
         // Stats must be valid JSON containing a total field equal to 0.
         let stats: serde_json::Value = serde_json::from_str(&stats_json).unwrap();
         // An empty DB may return 0 or null for the total — both represent zero meetings.
-        let total = stats["total"].as_i64().unwrap_or(0);
+        let total = stats["total_meetings"].as_i64().unwrap_or(0);
         assert_eq!(total, 0, "Empty DB must report total=0");
 
         let _ = std::fs::remove_file(&tmp);

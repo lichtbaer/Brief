@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { updateSetting } from "../services/settingsService";
-import { useEffect, useReducer, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TRANSCRIPTION_TIMEOUT_ERROR, isMeeting, type Meeting, type MeetingType } from "../types";
 
@@ -19,12 +19,6 @@ function classifyError(raw: string, t: (key: string) => string): string {
   if (raw.includes("WhisperX") || raw.includes("whisperx")) return t("errors.whisperx_unavailable");
   return raw;
 }
-// Fallback value for the processing step hint; overridden by backend defaults when available.
-let processingStepHintSecs = 8;
-void invoke<{ processing_step_hint_secs: number }>("get_setting_defaults")
-  .then((d) => { processingStepHintSecs = d.processing_step_hint_secs; })
-  .catch(() => {});
-
 type AppStatus = "idle" | "recording" | "processing" | "done" | "error";
 type ProcessingStep = "transcribing" | "summarizing";
 
@@ -103,6 +97,14 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
   const [audioLevel, setAudioLevel] = useState(0);
   // True when the recording buffer hit the ~4 hour cap and frames are being dropped.
   const [bufferOverflow, setBufferOverflow] = useState(false);
+  // Threshold (seconds) after which the processing step label switches from "transcribing" to
+  // "summarizing". useRef avoids re-renders; the value is only read inside a setInterval callback.
+  const processingStepHintSecsRef = useRef(8);
+  useEffect(() => {
+    void invoke<{ processing_step_hint_secs: number }>("get_setting_defaults")
+      .then((d) => { processingStepHintSecsRef.current = d.processing_step_hint_secs; })
+      .catch(() => {});
+  }, []);
 
   const { status, sessionId, error, meeting, processingStep } = state;
 
@@ -136,7 +138,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
         setProcessingElapsed((s) => {
           // Switch the step hint once processing exceeds the configured threshold (heuristic:
           // WhisperX typically finishes within this window on modern hardware).
-          if (s + 1 >= processingStepHintSecs) dispatch({ type: "SET_PROCESSING_STEP", step: "summarizing" });
+          if (s + 1 >= processingStepHintSecsRef.current) dispatch({ type: "SET_PROCESSING_STEP", step: "summarizing" });
           return s + 1;
         });
       }, 1000);
@@ -166,7 +168,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
     return () => clearInterval(id);
   }, [status, sessionId]);
 
-  const processMeeting = async (sid: string, audioPath: string) => {
+  const processMeeting = useCallback(async (sid: string, audioPath: string) => {
     dispatch({ type: "START_PROCESSING" });
     try {
       const result = await invoke<string>("process_meeting", {
@@ -185,9 +187,9 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
     } catch (err) {
       dispatch({ type: "ERROR", error: classifyError(String(err), t) });
     }
-  };
+  }, [meetingType, onMeetingDone, dispatch, t]);
 
-  const startRecording = async () => {
+  const startRecording = useCallback(async () => {
     try {
       setBufferOverflow(false);
       const id = await invoke<string>("start_recording", {
@@ -197,9 +199,9 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
     } catch (e) {
       dispatch({ type: "ERROR", error: classifyError(String(e), t) });
     }
-  };
+  }, [meetingType, setBufferOverflow, dispatch, t]);
 
-  const stopAndProcess = async () => {
+  const stopAndProcess = useCallback(async () => {
     if (!sessionId) return;
     const currentSessionId = sessionId;
     try {
@@ -210,7 +212,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
     } catch (e) {
       dispatch({ type: "ERROR", error: classifyError(String(e), t) });
     }
-  };
+  }, [sessionId, processMeeting, dispatch, t]);
 
   const onPrimaryClick = () => {
     if (status === "idle") {
@@ -240,8 +242,7 @@ export function RecordingView({ onMeetingDone }: RecordingViewProps) {
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, sessionId]);
+  }, [status, startRecording, stopAndProcess]);
 
   // Characters shown in the post-recording transcript preview — kept as a named constant.
   const TRANSCRIPT_PREVIEW_CHARS = 200;
