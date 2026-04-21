@@ -133,7 +133,7 @@ impl Transcriber {
     pub fn transcribe(&self, audio_path: &Path) -> Result<WhisperXOutput, String> {
         let audio_str = audio_path
             .to_str()
-            .ok_or_else(|| "Audio-Pfad ist nicht als UTF-8 darstellbar".to_string())?;
+            .ok_or_else(|| "Audio path is not valid UTF-8".to_string())?;
 
         log::info!(
             "Starting transcription: audio={} language={} model={} timeout={}s",
@@ -151,7 +151,7 @@ impl Transcriber {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|e| format!("WhisperX konnte nicht gestartet werden: {}", e))?;
+            .map_err(|e| format!("WhisperX process could not be started: {}", e))?;
 
         let mut stdout_pipe = child
             .stdout
@@ -210,10 +210,10 @@ impl Transcriber {
 
                     if !status.success() {
                         if let Ok(err) = serde_json::from_str::<WhisperXError>(&stdout) {
-                            return Err(format!("WhisperX-Fehler: {}", err.error));
+                            return Err(format!("WhisperX error: {}", err.error));
                         }
                         return Err(format!(
-                            "WhisperX-Fehler (Exit {}): stdout={} stderr={}",
+                            "WhisperX error (exit code {}): stdout={} stderr={}",
                             status.code().unwrap_or(-1),
                             stdout,
                             stderr_str
@@ -221,13 +221,13 @@ impl Transcriber {
                     }
 
                     if let Ok(err) = serde_json::from_str::<WhisperXError>(&stdout) {
-                        return Err(format!("WhisperX-Fehler: {}", err.error));
+                        return Err(format!("WhisperX error: {}", err.error));
                     }
 
                     let elapsed = start.elapsed().as_secs_f32();
                     log::info!("Transcription finished in {:.1}s", elapsed);
                     return serde_json::from_str::<WhisperXOutput>(&stdout).map_err(|e| {
-                        format!("WhisperX-Output nicht parsbar: {} — Output: {}", e, stdout)
+                        format!("WhisperX output could not be parsed: {} — raw: {}", e, stdout)
                     });
                 }
                 Ok(None) => {
@@ -242,7 +242,7 @@ impl Transcriber {
                     }
                     let _ = stdout_handle.join();
                     let _ = stderr_handle.join();
-                    return Err(format!("WhisperX-Prozessfehler: {}", e));
+                    return Err(format!("WhisperX process error: {}", e));
                 }
             }
         }
