@@ -143,10 +143,19 @@ pub async fn process_meeting_inner(
     let audio_path_buf = std::path::PathBuf::from(&audio_path);
     let audio_path_for_transcribe = audio_path_buf.clone();
 
+    // `Transcriber::transcribe` already performs internal retries; map stable timeout / other errors
+    // to `AppError` for consistent Tauri error strings and frontend handling.
     let result =
         tokio::task::spawn_blocking(move || transcriber.transcribe(&audio_path_for_transcribe))
             .await
-            .map_err(|e| AppError::TaskError(e.to_string()))??;
+            .map_err(|e| AppError::TaskError(e.to_string()).to_string())?
+            .map_err(|e| {
+                if e == crate::transcribe::TRANSCRIPTION_TIMEOUT_ERROR {
+                    AppError::TranscriptionTimeout.to_string()
+                } else {
+                    AppError::TranscriptionFailed(e).to_string()
+                }
+            })?;
 
     let transcript = result
         .segments

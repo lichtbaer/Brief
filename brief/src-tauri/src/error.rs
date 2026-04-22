@@ -44,6 +44,8 @@ pub enum AppError {
     TaskError(String),
     /// User cancelled a dialog (not a real error, but needs to propagate).
     Cancelled,
+    /// JSON or schema mismatch when reading from the local database (likely corruption or manual edit).
+    DataCorruption(String),
 }
 
 impl fmt::Display for AppError {
@@ -70,6 +72,9 @@ impl fmt::Display for AppError {
             Self::MeetingNotFound(id) => write!(f, "Meeting not found: {id}"),
             Self::TaskError(msg) => write!(f, "Task error: {msg}"),
             Self::Cancelled => write!(f, "cancelled"),
+            Self::DataCorruption(msg) => {
+                write!(f, "Stored data could not be read (possible database corruption): {msg}")
+            }
         }
     }
 }
@@ -125,6 +130,7 @@ mod tests {
             AppError::MeetingNotFound("id-2".into()),
             AppError::TaskError("join failed".into()),
             AppError::Cancelled,
+            AppError::DataCorruption("test".into()),
         ];
         for v in variants {
             let s = v.to_string();
@@ -170,6 +176,7 @@ mod tests {
             (AppError::IoError("not found".into()), "not found"),
             (AppError::MeetingNotFound("id-abc".into()), "id-abc"),
             (AppError::TaskError("panicked".into()), "panicked"),
+            (AppError::DataCorruption("row".into()), "row"),
         ];
         for (err, expected_fragment) in pairs {
             let s = err.to_string();

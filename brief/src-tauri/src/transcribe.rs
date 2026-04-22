@@ -96,6 +96,22 @@ fn default_python_bin_for_runner(runner_script: &str) -> String {
     resolve_venv_python_adjacent_to_runner(runner_script).unwrap_or_else(|| "python3".to_string())
 }
 
+/// Returns `true` for process-spawn and OS-level child failures; `false` for user-visible runner
+/// errors, timeouts, and unrecoverable parse failures (same strategy as Ollama retry in `summarize`).
+fn is_whisperx_transcription_retryable(err: &str) -> bool {
+    if err == TRANSCRIPTION_TIMEOUT_ERROR {
+        return false;
+    }
+    if err.contains("WhisperX output could not be parsed") {
+        return false;
+    }
+    // Distinguish structured runner errors (`{"error":"…"}` → "WhisperX error: msg") from shell/exits.
+    if err.starts_with("WhisperX error: ") {
+        return false;
+    }
+    true
+}
+
 impl Transcriber {
     /// Builds a transcriber: resolves runner path (`BRIEF_WHISPERX_RUNNER` or dev path next to crate), prefers `.venv` Python when present.
     pub fn new(python_bin: Option<String>, runner_script: Option<String>) -> Self {
@@ -130,7 +146,37 @@ impl Transcriber {
     }
 
     /// Runs the WhisperX subprocess on `audio_path`, reads stdout as JSON, and returns segments or a stable timeout token ([`TRANSCRIPTION_TIMEOUT_ERROR`]).
+    ///
+    /// On transient process failures (e.g. the child dying before a clean exit), retries up to two
+    /// additional times with 2s / 4s backoff. Does not retry the stable timeout token, JSON parse
+    /// failures, or an explicit `error` object from the runner.
     pub fn transcribe(&self, audio_path: &Path) -> Result<WhisperXOutput, String> {
+        const MAX_ATTEMPTS: u32 = 3; // 1 try + 2 retries (aligns with audit / Ollama retry spirit).
+        for attempt in 0..MAX_ATTEMPTS {
+            if attempt > 0 {
+                // 2s then 4s after first and second failure.
+                let delay = Duration::from_millis(2000 * (1u64 << (attempt - 1)));
+                log::warn!(
+                    "WhisperX attempt {}/{} failed; retrying after {:?}",
+                    attempt + 1,
+                    MAX_ATTEMPTS,
+                    delay
+                );
+                thread::sleep(delay);
+            }
+            match self.transcribe_once(audio_path) {
+                Ok(v) => return Ok(v),
+                Err(e) if is_whisperx_transcription_retryable(&e) && attempt + 1 < MAX_ATTEMPTS => {
+                    log::warn!("WhisperX transient error (will retry): {e}");
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err("WhisperX: exhausted attempts without a result (internal)".to_string())
+    }
+
+    /// Single subprocess attempt — see [`Transcriber::transcribe`] for retry policy.
+    fn transcribe_once(&self, audio_path: &Path) -> Result<WhisperXOutput, String> {
         let audio_str = audio_path
             .to_str()
             .ok_or_else(|| "Audio path is not valid UTF-8".to_string())?;
@@ -227,7 +273,10 @@ impl Transcriber {
                     let elapsed = start.elapsed().as_secs_f32();
                     log::info!("Transcription finished in {:.1}s", elapsed);
                     return serde_json::from_str::<WhisperXOutput>(&stdout).map_err(|e| {
-                        format!("WhisperX output could not be parsed: {} — raw: {}", e, stdout)
+                        format!(
+                            "WhisperX output could not be parsed: {} — raw: {}",
+                            e, stdout
+                        )
                     });
                 }
                 Ok(None) => {
@@ -348,5 +397,25 @@ mod tests {
             TRANSCRIPTION_TIMEOUT_ERROR,
             "BRIEF_ERR_TRANSCRIPTION_TIMEOUT"
         );
+    }
+
+    #[test]
+    fn is_whisperx_transcription_retryable_marks_timeouts_and_structured_errors_non_retry() {
+        use super::is_whisperx_transcription_retryable;
+        assert!(!is_whisperx_transcription_retryable(
+            TRANSCRIPTION_TIMEOUT_ERROR
+        ));
+        assert!(!is_whisperx_transcription_retryable(
+            "WhisperX output could not be parsed: oops"
+        ));
+        assert!(!is_whisperx_transcription_retryable(
+            "WhisperX error: CUDA out of memory"
+        ));
+        assert!(is_whisperx_transcription_retryable(
+            "WhisperX process could not be started: n"
+        ));
+        assert!(is_whisperx_transcription_retryable(
+            "WhisperX process error: interrupted"
+        ));
     }
 }

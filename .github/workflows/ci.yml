@@ -25,9 +25,15 @@ jobs:
             libasound2-dev
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Rust format check
         run: cargo fmt --check
+        working-directory: brief/src-tauri
+
+      - name: Rust clippy
+        run: cargo clippy --all-targets -- -D warnings
         working-directory: brief/src-tauri
 
       - name: Rust tests
@@ -56,6 +62,10 @@ jobs:
 
       - name: Install npm dependencies
         run: npm ci
+        working-directory: brief
+
+      - name: ESLint
+        run: npm run lint
         working-directory: brief
 
       - name: TypeScript type check
