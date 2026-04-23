@@ -1107,6 +1107,39 @@ impl Storage {
     }
 }
 
+#[cfg(test)]
+impl Storage {
+    /// Injects a raw value into a JSON column (tests only) — simulates on-disk corruption or
+    /// manual `sqlite3` edits so `parse_json_column` and list/search paths are exercised.
+    async fn test_inject_json_column(
+        &self,
+        id: &str,
+        column: &str,
+        value: &str,
+    ) -> Result<(), String> {
+        let sql = match column {
+            "output_json" => "UPDATE meetings SET output_json = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            "tags_json" => "UPDATE meetings SET tags_json = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            "speaker_names_json" => "UPDATE meetings SET speaker_names_json = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            "segments_json" => "UPDATE meetings SET segments_json = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            _ => {
+                return Err("test_inject_json_column: unknown column".to_string());
+            }
+        };
+        let rows = sqlx::query(sql)
+            .bind(value)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .rows_affected();
+        if rows == 0 {
+            return Err(format!("test_inject: no row updated for id={id}"));
+        }
+        Ok(())
+    }
+}
+
 /// Maps a database row (with id, created_at, meeting_type, title, output_json, tags_json,
 /// duration_seconds columns) to a summary JSON object used in the meeting list and history view.
 fn row_to_meeting_summary(r: &sqlx::sqlite::SqliteRow) -> Result<serde_json::Value, String> {
@@ -1446,6 +1479,129 @@ mod tests {
     }
 
     // -- search_meetings unicode query --
+
+    // -- DataCorruption: invalid JSON in stored columns (must not silently degrade) --
+
+    async fn test_db() -> (Storage, std::path::PathBuf) {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let tmp = std::env::temp_dir().join(format!("brief_test_corrupt_{ts}.db"));
+        let _ = std::fs::remove_file(&tmp);
+        let key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let s = Storage::new(tmp.to_str().unwrap(), key).await.unwrap();
+        (s, tmp)
+    }
+
+    #[tokio::test]
+    async fn get_meeting_fails_on_invalid_output_json() {
+        let (s, path) = test_db().await;
+        let m = meeting_from_transcription(
+            "cor-1".into(),
+            "internal".into(),
+            "Title".into(),
+            None,
+            &[],
+            "de",
+        );
+        s.save_meeting(&m).await.unwrap();
+        s.test_inject_json_column("cor-1", "output_json", "not valid json{")
+            .await
+            .unwrap();
+
+        let err = s.get_meeting("cor-1").await.err().expect("get_meeting must fail");
+        assert!(
+            err.contains("Stored data could not be read") && err.contains("output_json"),
+            "unexpected: {err}"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn list_meetings_fails_on_invalid_output_json() {
+        let (s, path) = test_db().await;
+        let m = meeting_from_transcription(
+            "cor-2".into(),
+            "legal".into(),
+            "L".into(),
+            None,
+            &[],
+            "en",
+        );
+        s.save_meeting(&m).await.unwrap();
+        s.test_inject_json_column("cor-2", "output_json", "{]broken")
+            .await
+            .unwrap();
+
+        let err = s.list_meetings().await.err().expect("list_meetings must fail");
+        assert!(
+            err.contains("output_json") && err.contains("Stored data could not be read"),
+            "{err}"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn get_meeting_fails_on_invalid_segments_json() {
+        let (s, path) = test_db().await;
+        let m = meeting_from_transcription(
+            "cor-3".into(),
+            "consulting".into(),
+            "C".into(),
+            None,
+            &[],
+            "de",
+        );
+        s.save_meeting(&m).await.unwrap();
+        s.test_inject_json_column("cor-3", "segments_json", "[1,2,notjson")
+            .await
+            .unwrap();
+
+        let err = s
+            .get_meeting("cor-3")
+            .await
+            .err()
+            .expect("get_meeting must fail on bad segments");
+        assert!(err.contains("segments_json"), "{err}");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn get_meeting_fails_on_invalid_speaker_names_json() {
+        let (s, path) = test_db().await;
+        let m = meeting_from_transcription(
+            "cor-4".into(),
+            "internal".into(),
+            "S".into(),
+            None,
+            &[],
+            "de",
+        );
+        s.save_meeting(&m).await.unwrap();
+        s.update_speaker_names("cor-4", {
+            let mut m = std::collections::HashMap::new();
+            m.insert("SPEAKER_00".to_string(), "Z".to_string());
+            m
+        })
+        .await
+        .unwrap();
+        s.test_inject_json_column("cor-4", "speaker_names_json", "{{")
+            .await
+            .unwrap();
+
+        let err = s
+            .get_meeting("cor-4")
+            .await
+            .err()
+            .expect("get_meeting must fail on bad speaker_names");
+        assert!(err.contains("speaker_names_json"), "{err}");
+
+        let _ = std::fs::remove_file(&path);
+    }
 
     #[tokio::test]
     async fn search_meetings_unicode_query_returns_match() {
