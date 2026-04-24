@@ -1,12 +1,22 @@
 //! Encrypted SQLite persistence via SQLCipher (bundled).
 
 use crate::defaults;
+use crate::error::AppError;
 use crate::types::{Meeting, MeetingOutput};
 use serde_json::json;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use sqlx::Acquire;
 use sqlx::Row;
 use std::path::Path;
+
+/// Parses a required JSON column. Invalid JSON is treated as data corruption so the UI does not
+/// show silently empty `output`/`tags` when the on-disk value is actually broken.
+fn parse_json_column(label: &str, row_id: &str, s: &str) -> Result<serde_json::Value, String> {
+    serde_json::from_str(s).map_err(|e| {
+        log::error!("{label} is invalid JSON for meeting {row_id}: {e}");
+        AppError::DataCorruption(format!("{label}: {e}")).to_string()
+    })
+}
 
 /// SQLCipher-backed meeting and settings persistence with FTS5 search index.
 pub struct Storage {
@@ -396,7 +406,10 @@ impl Storage {
             &rows[..]
         };
 
-        let meetings: Vec<serde_json::Value> = page.iter().map(row_to_meeting_summary).collect();
+        let meetings: Vec<serde_json::Value> = page
+            .iter()
+            .map(row_to_meeting_summary)
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Composite cursor: "created_at|id" of the last returned row.
         let next_cursor: serde_json::Value = if has_more {
@@ -431,7 +444,10 @@ impl Storage {
         .await
         .map_err(|e| format!("list_meetings failed: {}", e))?;
 
-        let meetings: Vec<serde_json::Value> = rows.iter().map(row_to_meeting_summary).collect();
+        let meetings: Vec<serde_json::Value> = rows
+            .iter()
+            .map(row_to_meeting_summary)
+            .collect::<Result<Vec<_>, _>>()?;
         serde_json::to_string(&meetings).map_err(|e| e.to_string())
     }
 
@@ -583,7 +599,10 @@ impl Storage {
         .await
         .map_err(|e| format!("list_meetings_by_type failed: {}", e))?;
 
-        let meetings: Vec<serde_json::Value> = rows.iter().map(row_to_meeting_summary).collect();
+        let meetings: Vec<serde_json::Value> = rows
+            .iter()
+            .map(row_to_meeting_summary)
+            .collect::<Result<Vec<_>, _>>()?;
         serde_json::to_string(&meetings).map_err(|e| e.to_string())
     }
 
@@ -604,7 +623,10 @@ impl Storage {
         .await
         .map_err(|e| format!("list_meetings_by_tag failed: {}", e))?;
 
-        let meetings: Vec<serde_json::Value> = rows.iter().map(row_to_meeting_summary).collect();
+        let meetings: Vec<serde_json::Value> = rows
+            .iter()
+            .map(row_to_meeting_summary)
+            .collect::<Result<Vec<_>, _>>()?;
         serde_json::to_string(&meetings).map_err(|e| e.to_string())
     }
 
@@ -655,7 +677,10 @@ impl Storage {
         .await
         .map_err(|e| format!("search_meetings failed: {}", e))?;
 
-        let meetings: Vec<serde_json::Value> = rows.iter().map(row_to_meeting_summary).collect();
+        let meetings: Vec<serde_json::Value> = rows
+            .iter()
+            .map(row_to_meeting_summary)
+            .collect::<Result<Vec<_>, _>>()?;
         serde_json::to_string(&meetings).map_err(|e| e.to_string())
     }
 
@@ -673,41 +698,58 @@ impl Storage {
         .await
         .map_err(|e| format!("Failed to load meeting: {}", e))?;
 
-        Ok(row.map(|r| {
-            let output_json: String = r.get("output_json");
-            let tags_json: String = r.get("tags_json");
-            // speaker_names_json may be NULL for rows created before the migration.
-            let speaker_names_json: Option<String> = r.get("speaker_names_json");
-            // segments_json may be NULL for rows created before the migration.
-            let segments_json: Option<String> = r.get("segments_json");
+        let Some(r) = row else {
+            return Ok(None);
+        };
+
+        let meeting_id: String = r.get("id");
+        let output_str: String = r.get("output_json");
+        let tags_str: String = r.get("tags_json");
+        // speaker_names_json may be NULL for rows created before the migration.
+        let speaker_names_json: Option<String> = r.get("speaker_names_json");
+        // segments_json may be NULL for rows created before the migration.
+        let segments_json: Option<String> = r.get("segments_json");
+
+        let output = parse_json_column("output_json", &meeting_id, &output_str)?;
+        let tags = parse_json_column("tags_json", &meeting_id, &tags_str)?;
+
+        let speaker_names = if let Some(ref s) = speaker_names_json {
+            if s.is_empty() {
+                json!({})
+            } else {
+                parse_json_column("speaker_names_json", &meeting_id, s)?
+            }
+        } else {
+            json!({})
+        };
+
+        let segments = if let Some(ref s) = segments_json {
+            if s.is_empty() {
+                json!([])
+            } else {
+                parse_json_column("segments_json", &meeting_id, s)?
+            }
+        } else {
+            json!([])
+        };
+
+        Ok(Some(
             json!({
-                "id": r.get::<String, _>("id"),
+                "id": meeting_id,
                 "created_at": r.get::<String, _>("created_at"),
                 "ended_at": r.get::<String, _>("ended_at"),
                 "duration_seconds": r.get::<i64, _>("duration_seconds"),
                 "meeting_type": r.get::<String, _>("meeting_type"),
                 "title": r.get::<String, _>("title"),
                 "transcript": r.get::<String, _>("transcript"),
-                "output": serde_json::from_str::<serde_json::Value>(&output_json).unwrap_or_else(|e| {
-                    log::warn!("output_json parse failed for meeting {}: {e}", r.get::<String, _>("id"));
-                    json!({})
-                }),
+                "output": output,
                 "audio_path": r.get::<Option<String>, _>("audio_path"),
-                "tags": serde_json::from_str::<serde_json::Value>(&tags_json).unwrap_or_else(|e| {
-                    log::warn!("tags_json parse failed for meeting {}: {e}", r.get::<String, _>("id"));
-                    json!([])
-                }),
-                "speaker_names": speaker_names_json
-                    .as_deref()
-                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
-                    .unwrap_or_else(|| json!({})),
-                "segments": segments_json
-                    .as_deref()
-                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
-                    .unwrap_or_else(|| json!([])),
+                "tags": tags,
+                "speaker_names": speaker_names,
+                "segments": segments,
             })
-            .to_string()
-        }))
+            .to_string(),
+        ))
     }
 
     /// Removes audio files whose retention period has expired and clears `audio_path` in the DB.
@@ -853,7 +895,10 @@ impl Storage {
         .await
         .map_err(|e| format!("list_meetings_by_date_range failed: {}", e))?;
 
-        let meetings: Vec<serde_json::Value> = rows.iter().map(row_to_meeting_summary).collect();
+        let meetings: Vec<serde_json::Value> = rows
+            .iter()
+            .map(row_to_meeting_summary)
+            .collect::<Result<Vec<_>, _>>()?;
         serde_json::to_string(&meetings).map_err(|e| e.to_string())
     }
 
@@ -925,7 +970,10 @@ impl Storage {
         .await
         .map_err(|e| format!("list_meetings_by_participant failed: {}", e))?;
 
-        let meetings: Vec<serde_json::Value> = rows.iter().map(row_to_meeting_summary).collect();
+        let meetings: Vec<serde_json::Value> = rows
+            .iter()
+            .map(row_to_meeting_summary)
+            .collect::<Result<Vec<_>, _>>()?;
         serde_json::to_string(&meetings).map_err(|e| e.to_string())
     }
 
@@ -1059,30 +1107,51 @@ impl Storage {
     }
 }
 
+#[cfg(test)]
+impl Storage {
+    /// Injects a raw value into a JSON column (tests only) — simulates on-disk corruption or
+    /// manual `sqlite3` edits so `parse_json_column` and list/search paths are exercised.
+    async fn test_inject_json_column(
+        &self,
+        id: &str,
+        column: &str,
+        value: &str,
+    ) -> Result<(), String> {
+        let sql = match column {
+            "output_json" => "UPDATE meetings SET output_json = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            "tags_json" => "UPDATE meetings SET tags_json = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            "speaker_names_json" => "UPDATE meetings SET speaker_names_json = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            "segments_json" => "UPDATE meetings SET segments_json = ?1 WHERE id = ?2 AND deleted_at IS NULL",
+            _ => {
+                return Err("test_inject_json_column: unknown column".to_string());
+            }
+        };
+        let rows = sqlx::query(sql)
+            .bind(value)
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| e.to_string())?
+            .rows_affected();
+        if rows == 0 {
+            return Err(format!("test_inject: no row updated for id={id}"));
+        }
+        Ok(())
+    }
+}
+
 /// Maps a database row (with id, created_at, meeting_type, title, output_json, tags_json,
 /// duration_seconds columns) to a summary JSON object used in the meeting list and history view.
-fn row_to_meeting_summary(r: &sqlx::sqlite::SqliteRow) -> serde_json::Value {
+fn row_to_meeting_summary(r: &sqlx::sqlite::SqliteRow) -> Result<serde_json::Value, String> {
+    let id: String = r.get("id");
     let output_str: String = r.get("output_json");
-    let output: serde_json::Value = serde_json::from_str(&output_str).unwrap_or_else(|e| {
-        // Log data-integrity problems so they surface in support logs rather than failing silently.
-        log::warn!(
-            "output_json parse failed for meeting {}: {e}",
-            r.get::<String, _>("id")
-        );
-        json!({})
-    });
+    let output = parse_json_column("output_json", &id, &output_str)?;
     let action_items = output["action_items"].as_array();
     let action_items_count = action_items.map(|a| a.len()).unwrap_or(0);
-    let tags_json: String = r.get("tags_json");
-    let tags: serde_json::Value = serde_json::from_str(&tags_json).unwrap_or_else(|e| {
-        log::warn!(
-            "tags_json parse failed for meeting {}: {e}",
-            r.get::<String, _>("id")
-        );
-        json!([])
-    });
-    json!({
-        "id": r.get::<String, _>("id"),
+    let tags_str: String = r.get("tags_json");
+    let tags = parse_json_column("tags_json", &id, &tags_str)?;
+    Ok(json!({
+        "id": id,
         "created_at": r.get::<String, _>("created_at"),
         "meeting_type": r.get::<String, _>("meeting_type"),
         "title": r.get::<String, _>("title"),
@@ -1090,7 +1159,7 @@ fn row_to_meeting_summary(r: &sqlx::sqlite::SqliteRow) -> serde_json::Value {
         "action_items_count": action_items_count,
         "duration_seconds": r.get::<i64, _>("duration_seconds"),
         "tags": tags,
-    })
+    }))
 }
 
 fn escape_key_pragma(key: &str) -> String {
@@ -1410,6 +1479,129 @@ mod tests {
     }
 
     // -- search_meetings unicode query --
+
+    // -- DataCorruption: invalid JSON in stored columns (must not silently degrade) --
+
+    async fn test_db() -> (Storage, std::path::PathBuf) {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let tmp = std::env::temp_dir().join(format!("brief_test_corrupt_{ts}.db"));
+        let _ = std::fs::remove_file(&tmp);
+        let key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let s = Storage::new(tmp.to_str().unwrap(), key).await.unwrap();
+        (s, tmp)
+    }
+
+    #[tokio::test]
+    async fn get_meeting_fails_on_invalid_output_json() {
+        let (s, path) = test_db().await;
+        let m = meeting_from_transcription(
+            "cor-1".into(),
+            "internal".into(),
+            "Title".into(),
+            None,
+            &[],
+            "de",
+        );
+        s.save_meeting(&m).await.unwrap();
+        s.test_inject_json_column("cor-1", "output_json", "not valid json{")
+            .await
+            .unwrap();
+
+        let err = s.get_meeting("cor-1").await.err().expect("get_meeting must fail");
+        assert!(
+            err.contains("Stored data could not be read") && err.contains("output_json"),
+            "unexpected: {err}"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn list_meetings_fails_on_invalid_output_json() {
+        let (s, path) = test_db().await;
+        let m = meeting_from_transcription(
+            "cor-2".into(),
+            "legal".into(),
+            "L".into(),
+            None,
+            &[],
+            "en",
+        );
+        s.save_meeting(&m).await.unwrap();
+        s.test_inject_json_column("cor-2", "output_json", "{]broken")
+            .await
+            .unwrap();
+
+        let err = s.list_meetings().await.err().expect("list_meetings must fail");
+        assert!(
+            err.contains("output_json") && err.contains("Stored data could not be read"),
+            "{err}"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn get_meeting_fails_on_invalid_segments_json() {
+        let (s, path) = test_db().await;
+        let m = meeting_from_transcription(
+            "cor-3".into(),
+            "consulting".into(),
+            "C".into(),
+            None,
+            &[],
+            "de",
+        );
+        s.save_meeting(&m).await.unwrap();
+        s.test_inject_json_column("cor-3", "segments_json", "[1,2,notjson")
+            .await
+            .unwrap();
+
+        let err = s
+            .get_meeting("cor-3")
+            .await
+            .err()
+            .expect("get_meeting must fail on bad segments");
+        assert!(err.contains("segments_json"), "{err}");
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn get_meeting_fails_on_invalid_speaker_names_json() {
+        let (s, path) = test_db().await;
+        let m = meeting_from_transcription(
+            "cor-4".into(),
+            "internal".into(),
+            "S".into(),
+            None,
+            &[],
+            "de",
+        );
+        s.save_meeting(&m).await.unwrap();
+        s.update_speaker_names("cor-4", {
+            let mut m = std::collections::HashMap::new();
+            m.insert("SPEAKER_00".to_string(), "Z".to_string());
+            m
+        })
+        .await
+        .unwrap();
+        s.test_inject_json_column("cor-4", "speaker_names_json", "{{")
+            .await
+            .unwrap();
+
+        let err = s
+            .get_meeting("cor-4")
+            .await
+            .err()
+            .expect("get_meeting must fail on bad speaker_names");
+        assert!(err.contains("speaker_names_json"), "{err}");
+
+        let _ = std::fs::remove_file(&path);
+    }
 
     #[tokio::test]
     async fn search_meetings_unicode_query_returns_match() {
